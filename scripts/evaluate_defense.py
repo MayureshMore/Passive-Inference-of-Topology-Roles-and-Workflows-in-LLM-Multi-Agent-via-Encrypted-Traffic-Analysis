@@ -46,26 +46,46 @@ PROCESSED_DIR = Path("data/processed")
 MODELS_DIR    = Path("data/models")
 RESULTS_DIR   = Path("data/results")
 
-# ── Feature index groups (based on flat vector layout: 30 pf_mean + 73 per_system)
-# Per-flow (pf_mean) block: indices 0–29
-# Per-system scalar block: indices 30–42
-# Per-system pf_mean/pf_std block: indices 43–102
+# ── Feature index groups (flat vector layout: 192-dim)
+# pf_mean block:             indices   0–34  (35-dim)
+# pf_top1 block (heaviest):  indices  35–69  (35-dim)
+# pf_top2 block (2nd heavy): indices  70–104 (35-dim)
+# per_system scalar block:   indices 105–121 (17 scalars)
+# per_system pf_mean block:  indices 122–156 (35-dim)
+# per_system pf_std block:   indices 157–191 (35-dim)
+#
+# pf layout offsets (same for pf_mean, pf_top1, pf_top2):
+#   n_pkts_out(+0), n_pkts_in(+1), bytes_out(+2), bytes_in(+3),
+#   mean_sz_out(+4), std_sz_out(+5), p25_sz_out(+6), p75_sz_out(+7),
+#   mean_sz_in(+8), std_sz_in(+9), p25_sz_in(+10), p75_sz_in(+11),
+#   duration_s(+12), mean_iat(+13), std_iat(+14), ...
+#   bytes_out_ratio(+30), pkt_size_asymmetry(+31), n_small_inbound(+32),
+#   n_response_bursts(+33), iqr_size_in(+34)
+#
+# per_system scalars (base 105):
+#   n_flows(105), n_src(106), n_dst(107), n_pairs(108),
+#   total_bytes(109), total_packets(110), total_duration(111),
+#   flow_start_spread(112), flow_end_spread(113), max_concurrent(114),
+#   total_bursts(115), mean_burst_rate(116), bytes_out_ratio(117),
+#   heaviest_flow_bytes_frac(118), flow_bytes_cv(119),
+#   n_response_heavy_flows(120), mean_flow_response_ratio(121)
 
-# Packet-size feature indices within the per-flow block (mean of pf features)
-# pf layout: n_pkts_out(0), n_pkts_in(1), bytes_out(2), bytes_in(3),
-#            mean_sz_out(4), std_sz_out(5), p25_sz_out(6), p75_sz_out(7),
-#            mean_sz_in(8), std_sz_in(9), p25_sz_in(10), p75_sz_in(11),
-#            duration_s(12), mean_iat(13), std_iat(14), ...
-SIZE_FEATURE_INDICES = list(range(0, 12))   # bytes + size statistics (pf_mean block)
-# Also zero out the per-system total_bytes / total_packets (indices 34, 35)
-SIZE_FEATURE_INDICES += [34, 35]
+# Size-related indices across all three pf blocks + per_system
+SIZE_FEATURE_INDICES  = list(range(0, 12))           # pf_mean: pkt counts + size stats
+SIZE_FEATURE_INDICES += [30, 31, 32, 34]             # pf_mean: asymmetry + sse + iqr
+SIZE_FEATURE_INDICES += list(range(35, 47))          # pf_top1: pkt counts + size stats
+SIZE_FEATURE_INDICES += [65, 66, 67, 69]             # pf_top1: asymmetry + sse + iqr
+SIZE_FEATURE_INDICES += list(range(70, 82))          # pf_top2: pkt counts + size stats
+SIZE_FEATURE_INDICES += [100, 101, 102, 104]         # pf_top2: asymmetry + sse + iqr
+SIZE_FEATURE_INDICES += [109, 110]                   # per_system: total_bytes, total_packets
 
-# Timing feature indices
-TIMING_FEATURE_INDICES = [12, 13, 14]       # duration, mean_iat, std_iat (pf_mean block)
-TIMING_FEATURE_INDICES += [36, 37, 38]      # total_duration, flow_start_spread, flow_end_spread
+# Timing-related indices across all three pf blocks + per_system
+TIMING_FEATURE_INDICES  = [12, 13, 14, 33]          # pf_mean: duration/iat/response_bursts
+TIMING_FEATURE_INDICES += [47, 48, 49, 68]          # pf_top1: 35+12, 35+13, 35+14, 35+33
+TIMING_FEATURE_INDICES += [82, 83, 84, 103]         # pf_top2: 70+12, 70+13, 70+14, 70+33
+TIMING_FEATURE_INDICES += [111, 112, 113]           # per_system: duration, flow_start/end spread
 
-# All feature indices that would be perturbed by dummy/cover traffic
-ALL_INDICES = list(range(103))
+ALL_INDICES = list(range(192))
 
 
 def load_dataset(task: str):
@@ -87,16 +107,17 @@ def load_dataset(task: str):
     return np.stack(X_list), y_list
 
 
-# Per-flow (role, 30-dim) feature layout:
-#   [0-11] packet counts + size stats, [12-14] timing, [15-19] burst stats, [20-29] cumul_bytes
-_SIZE_30   = list(range(0, 12))
-_TIMING_30 = [12, 13, 14, 18, 19]
+# Per-flow (role, 35-dim) feature layout:
+#   [0-11] packet counts + size stats, [12-14] timing, [15-19] burst stats,
+#   [20-29] cumul_bytes, [30-34] asymmetry/sse-proxy
+_SIZE_35   = list(range(0, 12)) + [30, 31, 32, 34]   # size + asymmetry + iqr
+_TIMING_35 = [12, 13, 14, 18, 19, 33]                # timing + response_bursts
 
 
 def _index_sets(dim: int) -> tuple[list[int], list[int]]:
     """Return (size_indices, timing_indices) appropriate for the feature vector dimension."""
-    if dim == 30:
-        return _SIZE_30, _TIMING_30
+    if dim == 35:
+        return _SIZE_35, _TIMING_35
     return SIZE_FEATURE_INDICES, TIMING_FEATURE_INDICES
 
 
@@ -127,15 +148,16 @@ def apply_defense(X: np.ndarray, defense: str, noise_std: float = 0.3) -> np.nda
 
 def overhead_fraction(defense: str) -> float:
     """Fraction of feature dimensions modified (proxy for protocol overhead)."""
+    total = len(ALL_INDICES)
     if defense == "padding":
-        return len(SIZE_FEATURE_INDICES) / 103
+        return len(SIZE_FEATURE_INDICES) / total
     if defense == "timing":
-        return len(TIMING_FEATURE_INDICES) / 103
+        return len(TIMING_FEATURE_INDICES) / total
     if defense == "dummy":
         return 1.0
     if defense == "combined":
         modified = set(SIZE_FEATURE_INDICES) | set(TIMING_FEATURE_INDICES) | set(ALL_INDICES)
-        return len(modified) / 103
+        return len(modified) / total
     return 0.0
 
 

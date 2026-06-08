@@ -209,16 +209,18 @@ async def run_topology(
         await _kill_port(PORTS[role])
     await asyncio.sleep(0.6)
 
-    # Start downstream agents
+    # Start downstream agents — keep agent refs for graceful shutdown
     configs = _agent_configs(topology, model)
     agent_classes = {
         "executor": ExecutorAgent,
         "retriever": RetrieverAgent,
         "validator": ValidatorAgent,
     }
+    agents: list = []
     tasks: list[asyncio.Task] = []
     for role, AgentClass in agent_classes.items():
         agent = AgentClass(configs[role])
+        agents.append(agent)
         tasks.append(asyncio.create_task(agent.run(), name=f"{topology}-{role}"))
 
     await asyncio.sleep(1.2)  # let uvicorn bind all three ports
@@ -227,6 +229,8 @@ async def run_topology(
     for role in ("executor", "retriever", "validator"):
         if not await _wait_ready(role):
             logger.error("  %s agent never came up — aborting topology %s", role, topology)
+            for agent in agents:
+                await agent.shutdown()
             for t in tasks:
                 t.cancel()
             return {}
@@ -274,20 +278,25 @@ async def run_topology(
         stats[f"{topology}/{wf_name}"] = {"total": n, "success": ok, "failed": n - ok}
         logger.info("    → %d/%d successful", ok, n)
 
-    # Tear down downstream agents
-    for t in tasks:
+    # Tear down downstream agents — three-step shutdown:
+    # 1. Signal uvicorn gracefully via should_exit (avoids sys.exit in task)
+    # 2. Wait up to 4 s for tasks to finish; cancel anything still running
+    # 3. Force-kill any process still holding the port + wait for TIME_WAIT
+    logger.info("  Tearing down %s agents...", topology)
+    for agent in agents:
+        await agent.shutdown()
+    done, pending = await asyncio.wait(tasks, timeout=4.0)
+    for t in pending:
         t.cancel()
-    for t in tasks:
+    for t in pending:
         try:
             await t
-        except (asyncio.CancelledError, Exception):
+        except BaseException:
             pass
-    # Force-kill lingering port holders and wait for OS to release sockets.
-    # 0.3 s is too short — uvicorn TCP sockets stay in TIME_WAIT; next topology
-    # fails to bind. 3 s covers TIME_WAIT on loopback + SO_REUSEADDR delay.
     for role in ("executor", "retriever", "validator"):
         await _kill_port(PORTS[role])
     await asyncio.sleep(3.0)
+    logger.info("  Teardown complete.")
 
     return stats
 

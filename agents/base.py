@@ -68,6 +68,7 @@ class BaseA2AAgent:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self._http_client: httpx.AsyncClient | None = None
+        self._server = None  # set by run(); used by shutdown() for graceful exit
 
     # ── LLM helper ───────────────────────────────────────────────────────────
 
@@ -246,14 +247,24 @@ class BaseA2AAgent:
             port=self.config.port,
             log_level="info",
         )
-        server = uvicorn.Server(config)
+        self._server = uvicorn.Server(config)
         logger.info(
             "Starting %s agent on %s:%d",
             self.config.role.value,
             self.config.host,
             self.config.port,
         )
-        await server.serve()
+        try:
+            await self._server.serve()
+        except SystemExit:
+            # uvicorn calls sys.exit(0) during shutdown; swallow it here so it
+            # never propagates to the asyncio task boundary and kills the process.
+            pass
+
+    async def shutdown(self) -> None:
+        """Signal uvicorn to exit gracefully (sets should_exit flag)."""
+        if self._server is not None:
+            self._server.should_exit = True
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

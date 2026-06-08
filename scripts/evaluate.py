@@ -83,13 +83,17 @@ def load_dataset(
 
 # ── Closed-world evaluation ───────────────────────────────────────────────────
 
-# All 13 per-system SCALAR indices (flat vector positions 30–42).
-# These encode flow counts, host pairs, byte volumes, timing spreads, and burst
-# rates — every one of them is structurally informative about topology type.
-# Zeroing only the 3 "obvious" features (spread + concurrent) was insufficient:
-# n_flows alone separates star (3) from chain (1) trivially.
-# A genuine non-tautological signal test must zero ALL of these.
-_ALL_SYSTEM_SCALAR_INDICES = list(range(30, 43))  # n_flows…bytes_out_ratio
+# All 17 per-system SCALAR indices in the 192-dim flat vector.
+# Flat vector layout (192-dim):
+#   [0:35]   pf_mean (35-dim)
+#   [35:70]  pf_top1 — heaviest flow by total bytes (35-dim)
+#   [70:105] pf_top2 — 2nd heaviest flow by total bytes (35-dim)
+#   [105:192] per_system (87-dim):
+#     [105:122] = 17 scalars, [122:157] = per_system pf_mean, [157:192] = pf_std
+# Zeroing all 17 per-system scalars is the honest non-tautological topology test:
+# n_flows, host counts, volumes, timing spreads, burst rates, AND the new
+# traffic-distribution scalars (heaviest_flow_frac, flow_bytes_cv, etc.).
+_ALL_SYSTEM_SCALAR_INDICES = list(range(105, 122))  # n_flows…mean_flow_response_ratio
 
 
 def run_closed_world(tasks: list[str], ablate_structural: bool = False,
@@ -109,7 +113,7 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         if ablate_structural and task == "topology":
             X = X.copy()
             X[:, _ALL_SYSTEM_SCALAR_INDICES] = 0.0
-            logger.info("Ablation: zeroed ALL 13 per-system scalar features (indices 30–42)")
+            logger.info("Ablation: zeroed ALL 17 per-system scalar features (indices 105–121)")
 
         n_splits = min(5, _min_class_count(y))
         if n_splits < 2:
@@ -282,8 +286,9 @@ def main(args: argparse.Namespace) -> None:
     (RESULTS_DIR / "open_world").mkdir(parents=True, exist_ok=True)
 
     # C1 note: what's measured is topology-TYPE classification (star/chain/mesh),
-    # not edge reconstruction. --ablate-structural zeroes all 13 per-system scalar
-    # features (indices 30-42) — counts, volumes, timing spreads, burst rates.
+    # not edge reconstruction. --ablate-structural zeroes all 17 per-system scalar
+    # features (indices 105-121 in 192-dim vector) — counts, volumes, timing
+    # spreads, burst rates, traffic-distribution scalars.
     # That is the honest non-tautological test.
     tasks = ["workflow", "topology", "role"]
 
@@ -329,8 +334,8 @@ if __name__ == "__main__":
     p.add_argument("--mode", choices=["closed_world", "open_world", "all"],
                    default="all")
     p.add_argument("--ablate-structural", action="store_true",
-                   help="Zero all 13 per-system scalar features (indices 30–42) for topology "
-                        "task — the honest test for non-tautological signal")
+                   help="Zero all 17 per-system scalar features (indices 105–121 in 192-dim vector) "
+                        "for topology task — the honest test for non-tautological signal")
     p.add_argument("--rf-only", action="store_true",
                    help="Skip Transformer (uninformative at < ~1,000 traces per class)")
     main(p.parse_args())

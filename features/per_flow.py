@@ -52,6 +52,13 @@ class PerFlowFeatures:
     # Cumulative bytes at fixed time quantiles (10 points)
     cumulative_bytes: list[float] = None  # type: ignore[assignment]
 
+    # Asymmetry / SSE-proxy features (indices 30–34)
+    bytes_out_ratio: float = 0.5        # bytes_out / total_bytes — role discriminator
+    pkt_size_asymmetry: float = 0.5     # mean_sz_out / (mean_sz_out + mean_sz_in)
+    n_small_inbound: int = 0            # inbound pkts ≤200 B — SSE chunk proxy
+    n_response_bursts: int = 0          # bursts in response direction — streaming depth
+    iqr_size_in: float = 0.0            # p75 - p25 of inbound sizes — SSE regularity
+
     def __post_init__(self):
         if self.cumulative_bytes is None:
             self.cumulative_bytes = [0.0] * 10
@@ -83,7 +90,17 @@ class PerFlowFeatures:
             dtype=np.float32,
         )
         cumul = np.array(self.cumulative_bytes, dtype=np.float32)
-        return np.concatenate([base, cumul])  # 30-dim
+        extra = np.array(
+            [
+                self.bytes_out_ratio,
+                self.pkt_size_asymmetry,
+                self.n_small_inbound,
+                self.n_response_bursts,
+                self.iqr_size_in,
+            ],
+            dtype=np.float32,
+        )
+        return np.concatenate([base, cumul, extra])  # 35-dim
 
     @staticmethod
     def FEATURE_NAMES() -> list[str]:
@@ -96,7 +113,11 @@ class PerFlowFeatures:
             "mean_burst_dur", "mean_ibg",
         ]
         names += [f"cumul_bytes_q{i}" for i in range(10)]
-        return names
+        names += [
+            "bytes_out_ratio", "pkt_size_asymmetry",
+            "n_small_inbound", "n_response_bursts", "iqr_size_in",
+        ]
+        return names  # 35 names
 
 
 def compute_per_flow(
@@ -167,5 +188,23 @@ def compute_per_flow(
                 cumul += all_sorted[pkt_idx][1]
                 pkt_idx += 1
             feat.cumulative_bytes[q] = cumul
+
+    # Asymmetry / SSE-proxy features
+    total_bytes = feat.total_bytes_out + feat.total_bytes_in
+    feat.bytes_out_ratio = feat.total_bytes_out / (total_bytes + 1e-8)
+
+    sz_out = feat.mean_size_out
+    sz_in = feat.mean_size_in
+    feat.pkt_size_asymmetry = sz_out / (sz_out + sz_in + 1e-8)
+
+    # Small inbound packets (≤200 B) as a proxy for SSE chunks:
+    # each SSE data line arrives as its own small TCP segment
+    feat.n_small_inbound = sum(1 for s in sizes_in if s <= 200)
+
+    # Response bursts: bursts where the agent is the sender (direction == 1)
+    feat.n_response_bursts = sum(1 for b in bursts if b.direction == 1)
+
+    # IQR of inbound packet sizes — low IQR = uniform SSE chunk sizes
+    feat.iqr_size_in = feat.p75_size_in - feat.p25_size_in
 
     return feat

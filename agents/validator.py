@@ -24,14 +24,15 @@ class ValidatorAgent(BaseA2AAgent):
     async def handle_task(self, task_id: str, content: str) -> str:
         logger.info("[validator] received task %s", task_id)
 
+        # Enforce a SHORT verdict — this creates clearly smaller response payloads
+        # than executor (medium) or retriever (long), aiding role classification.
         prompt_review = (
-            f"You are a strict quality validator. Review the following content "
-            f"and provide:\n"
-            f"1. VERDICT: PASS or FAIL\n"
-            f"2. SCORE: 1-10\n"
-            f"3. ISSUES: list any problems (or 'None' if PASS)\n"
-            f"4. FEEDBACK: one sentence of actionable improvement advice\n\n"
-            f"CONTENT TO REVIEW:\n{content}"
+            f"You are a strict quality validator. Reply in EXACTLY this format "
+            f"(no other text):\n"
+            f"VERDICT: PASS or FAIL\n"
+            f"SCORE: X/10\n"
+            f"REASON: one sentence max 20 words\n\n"
+            f"CONTENT:\n{content[:600]}"
         )
         review = await self.llm_generate(prompt_review)
         logger.debug("[validator] verdict for %s:\n%s", task_id, review)

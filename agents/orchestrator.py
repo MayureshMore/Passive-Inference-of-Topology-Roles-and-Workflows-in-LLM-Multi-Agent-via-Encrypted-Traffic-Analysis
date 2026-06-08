@@ -43,7 +43,15 @@ class OrchestratorAgent(BaseA2AAgent):
             self.send_task(
                 target_url=agent_url,
                 task_id=f"{task_id}_{i}",
-                content=f"Sub-task {i+1} (from orchestrator):\n{subtask_plan}\n\nOriginal task: {content}",
+                # Pass the FULL original task content (not just the plan) so that
+                # large-payload workflows (data_analysis CSV, code_review code)
+                # produce larger request packets — making workflows distinguishable
+                # by inter-agent traffic volume.
+                content=(
+                    f"Sub-task {i+1} of {len(self.config.downstream_agents)}:\n"
+                    f"{subtask_plan}\n\n"
+                    f"FULL TASK CONTEXT (use as needed):\n{content}"
+                ),
             )
             for i, agent_url in enumerate(self.config.downstream_agents)
         ]

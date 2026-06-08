@@ -22,31 +22,36 @@ class RetrieverAgent(BaseA2AAgent):
     async def handle_task(self, task_id: str, content: str) -> str:
         logger.info("[retriever] received task %s", task_id)
 
-        # Simulate retrieval: generate "retrieved" context with the local LLM.
-        # Deliberately uses multiple short LLM calls to mimic chunk-level retrieval
-        # and produce the burst pattern characteristic of retrieval workflows.
-        prompt_extract = (
-            f"You are a knowledge retriever. Extract the key information need "
-            f"and list 3-5 relevant facts or context items that would help answer "
-            f"the following query. Format as a numbered list.\n\nQUERY: {content}"
-        )
-        retrieved_chunks = await self.llm_generate(prompt_extract)
+        # Three-phase retrieval simulation — produces 3 LLM round-trips
+        # (vs executor=1, validator=1), creating a distinctive latency signature.
 
-        prompt_rank = (
-            f"You are a knowledge retriever. Given the following retrieved chunks, "
-            f"rank them by relevance and return the top 3 with a one-sentence "
-            f"summary each.\n\nCHUNKS:\n{retrieved_chunks}\n\nQUERY: {content}"
+        # Phase 1: extract key search terms
+        terms = await self.llm_generate(
+            f"You are a knowledge retriever. Extract 3-5 precise search terms "
+            f"from this query. Return a numbered list only.\n\nQUERY: {content[:400]}"
         )
-        ranked_context = await self.llm_generate(prompt_rank)
 
-        # Forward to downstream if configured (e.g. in a chain)
+        # Phase 2: retrieve relevant facts for each term
+        retrieved = await self.llm_generate(
+            f"You are a knowledge retriever. For each search term below, provide "
+            f"2-3 relevant facts from your knowledge. Use 'Term N:' headers.\n\n"
+            f"TERMS:\n{terms}\n\nORIGINAL QUERY: {content[:400]}"
+        )
+
+        # Phase 3: synthesise into a coherent retrieval report
+        report = await self.llm_generate(
+            f"You are a knowledge retriever. Synthesise the following retrieved "
+            f"facts into a structured retrieval report with sections: Summary, "
+            f"Key Findings (numbered), Gaps.\n\nFACTS:\n{retrieved}"
+        )
+
         if self.config.downstream_agents:
             next_url = self.config.downstream_agents[0]
             forwarded = await self.send_task(
                 target_url=next_url,
                 task_id=f"{task_id}_fwd",
-                content=f"Retrieved context:\n{ranked_context}\n\nOriginal query: {content}",
+                content=f"Retrieved context:\n{report}\n\nOriginal query: {content}",
             )
             return forwarded.output
 
-        return ranked_context
+        return report

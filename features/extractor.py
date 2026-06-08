@@ -35,12 +35,32 @@ class TraceFeatures:
     gap_sequence: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
 
     def flat_vector(self) -> np.ndarray:
-        """Flat feature vector for the Random Forest baseline."""
-        pf_vec = np.mean(
-            [pf.to_vector() for pf in self.per_flow], axis=0
-        ) if self.per_flow else np.zeros(30, dtype=np.float32)
-        ps_vec = self.per_system.to_vector()
-        return np.concatenate([pf_vec, ps_vec]).astype(np.float32)
+        """
+        Flat feature vector for the Random Forest baseline.
+
+        Layout (192-dim):
+          [0:35]   pf_mean  — mean over all flows
+          [35:70]  pf_top1  — heaviest flow by total bytes
+          [70:105] pf_top2  — 2nd heaviest flow by total bytes
+          [105:192] per_system (87-dim)
+        """
+        zero35 = np.zeros(35, dtype=np.float32)
+        if self.per_flow:
+            vecs = [pf.to_vector() for pf in self.per_flow]
+            pf_mean = np.mean(vecs, axis=0).astype(np.float32)
+            sorted_pf = sorted(
+                self.per_flow,
+                key=lambda pf: pf.total_bytes_out + pf.total_bytes_in,
+                reverse=True,
+            )
+            pf_top1 = sorted_pf[0].to_vector() if len(sorted_pf) >= 1 else zero35
+            pf_top2 = sorted_pf[1].to_vector() if len(sorted_pf) >= 2 else zero35
+        else:
+            pf_mean = zero35
+            pf_top1 = zero35
+            pf_top2 = zero35
+        ps_vec = self.per_system.to_vector()  # 87-dim
+        return np.concatenate([pf_mean, pf_top1, pf_top2, ps_vec]).astype(np.float32)  # 192-dim
 
     def save(self, out_path: Path) -> None:
         np.savez_compressed(

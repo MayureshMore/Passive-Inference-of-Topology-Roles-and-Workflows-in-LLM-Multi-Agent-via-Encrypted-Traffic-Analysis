@@ -43,9 +43,16 @@ class PerSystemFeatures:
     # Directionality ratio across all flows
     bytes_out_ratio: float = 0.0
 
+    # Traffic-distribution features (workflow discriminators)
+    # Which agent did the most work?  Low cv = balanced (star); high = chain/mesh.
+    heaviest_flow_bytes_frac: float = 0.0   # max(flow_bytes) / total_bytes
+    flow_bytes_cv: float = 0.0              # std / mean of per-flow byte counts
+    n_response_heavy_flows: int = 0         # flows where bytes_in > bytes_out
+    mean_flow_response_ratio: float = 0.0   # mean(bytes_in / flow_bytes) across flows
+
     # Per-flow feature statistics (mean and std of each per-flow dimension)
-    pf_mean: np.ndarray = field(default_factory=lambda: np.zeros(30, dtype=np.float32))
-    pf_std: np.ndarray = field(default_factory=lambda: np.zeros(30, dtype=np.float32))
+    pf_mean: np.ndarray = field(default_factory=lambda: np.zeros(35, dtype=np.float32))
+    pf_std: np.ndarray = field(default_factory=lambda: np.zeros(35, dtype=np.float32))
 
     def to_vector(self) -> np.ndarray:
         scalar = np.array(
@@ -63,10 +70,14 @@ class PerSystemFeatures:
                 self.total_bursts,
                 self.mean_burst_rate_per_s,
                 self.bytes_out_ratio,
+                self.heaviest_flow_bytes_frac,
+                self.flow_bytes_cv,
+                self.n_response_heavy_flows,
+                self.mean_flow_response_ratio,
             ],
             dtype=np.float32,
         )
-        return np.concatenate([scalar, self.pf_mean, self.pf_std])  # 73-dim
+        return np.concatenate([scalar, self.pf_mean, self.pf_std])  # 87-dim
 
     @staticmethod
     def FEATURE_NAMES() -> list[str]:
@@ -76,11 +87,13 @@ class PerSystemFeatures:
             "total_bytes", "total_packets", "total_duration_s",
             "flow_start_spread", "flow_end_spread", "max_concurrent_flows",
             "total_bursts", "mean_burst_rate", "bytes_out_ratio",
+            "heaviest_flow_bytes_frac", "flow_bytes_cv",
+            "n_response_heavy_flows", "mean_flow_response_ratio",
         ]
         pf_names = PerFlowFeatures.FEATURE_NAMES()
         pf_mean_names = [f"pf_mean_{n}" for n in pf_names]
         pf_std_names = [f"pf_std_{n}" for n in pf_names]
-        return scalar_names + pf_mean_names + pf_std_names
+        return scalar_names + pf_mean_names + pf_std_names  # 17+35+35 = 87 names
 
 
 def compute_per_system(
@@ -147,6 +160,29 @@ def compute_per_system(
     if feat.total_bytes > 0:
         total_out = sum(pf.total_bytes_out for pf in per_flow_features)
         feat.bytes_out_ratio = total_out / feat.total_bytes
+
+    # Traffic distribution across flows — workflow discriminator.
+    # research_retrieval: retriever flow dominates.
+    # code_review: validator flow dominates.
+    # data_analysis: executor flow dominates.
+    # support_triage: balanced (all flows small).
+    flow_bytes = np.array(
+        [pf.total_bytes_out + pf.total_bytes_in for pf in per_flow_features],
+        dtype=np.float32,
+    )
+    if feat.total_bytes > 0 and len(flow_bytes) > 0:
+        feat.heaviest_flow_bytes_frac = float(flow_bytes.max()) / feat.total_bytes
+        mean_fb = float(flow_bytes.mean())
+        feat.flow_bytes_cv = float(flow_bytes.std()) / (mean_fb + 1e-8)
+    feat.n_response_heavy_flows = sum(
+        1 for pf in per_flow_features if pf.total_bytes_in > pf.total_bytes_out
+    )
+    if per_flow_features:
+        ratios = [
+            pf.total_bytes_in / (pf.total_bytes_out + pf.total_bytes_in + 1e-8)
+            for pf in per_flow_features
+        ]
+        feat.mean_flow_response_ratio = float(np.mean(ratios))
 
     # Per-flow feature matrix → mean and std across flows
     pf_matrix = np.stack([pf.to_vector() for pf in per_flow_features], axis=0)
