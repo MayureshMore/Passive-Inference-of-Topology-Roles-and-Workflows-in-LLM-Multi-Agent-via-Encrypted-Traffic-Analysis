@@ -282,7 +282,12 @@ async def run_topology(
             await t
         except (asyncio.CancelledError, Exception):
             pass
-    await asyncio.sleep(0.3)
+    # Force-kill lingering port holders and wait for OS to release sockets.
+    # 0.3 s is too short — uvicorn TCP sockets stay in TIME_WAIT; next topology
+    # fails to bind. 3 s covers TIME_WAIT on loopback + SO_REUSEADDR delay.
+    for role in ("executor", "retriever", "validator"):
+        await _kill_port(PORTS[role])
+    await asyncio.sleep(3.0)
 
     return stats
 
