@@ -1,0 +1,19 @@
+# WAN testbed configuration (US-India distributed deployment)
+# Fill in actual IP addresses before using.
+
+orchestrator: "FILL_IN_US_HOST:8000"       # MacBook Pro M3 Max (US)
+executor:     "FILL_IN_INDIA_HOST:8001"    # Dell PowerEdge R730xd (India)
+retriever:    "FILL_IN_INDIA_HOST:8002"    # Dell PowerEdge R730xd (India)
+validator:    "FILL_IN_US_HOST:8003"       # MacBook Pro M3 Max (US)
+
+interface: en0    # Adjust to the WAN-facing interface
+
+ollama_base_url: "http://localhost:11434"   # Each site runs its own Ollama
+ollama_model: "llama3.2:3b"               # India uses a smaller model if needed
+
+# Testbed site label
+site: "us_india_wan"
+
+# Note: Each site runs its own local Ollama instance so that inference
+# traffic stays local and does not contaminate the inter-agent A2A flows
+# that cross the WAN.  See proposal §8.1 (inference-latency confound).

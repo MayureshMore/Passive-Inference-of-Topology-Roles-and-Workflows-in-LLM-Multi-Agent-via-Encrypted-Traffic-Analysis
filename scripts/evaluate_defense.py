@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+Defense evaluation script (proposal §C4).
+
+Measures the trade-off between defense overhead and attacker accuracy drop.
+Works by synthetically applying defense transformations to the flat feature
+vectors extracted from real traces, then re-running the RF attack model.
+
+Defenses modelled:
+  padding      — zero out all packet-size features (simulates constant-size
+                 padded packets; attacker sees no size signal)
+  timing       — zero out all inter-arrival and timing features (simulates
+                 schedule-randomisation; attacker sees no timing signal)
+  dummy        — add Gaussian noise to all features (simulates dummy/cover
+                 traffic that inflates every statistic by a random amount)
+  combined     — all three together
+
+Overhead is reported as the fraction of feature dimensions zeroed/perturbed
+(proxy for protocol overhead; real per-byte overhead requires re-collecting
+traces with the live defense middleware, which is the next experiment step).
+
+Usage:
+    python scripts/evaluate_defense.py
+    python scripts/evaluate_defense.py --task workflow
+    python scripts/evaluate_defense.py --task topology --noise-std 0.5
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+PROCESSED_DIR = Path("data/processed")
+MODELS_DIR    = Path("data/models")
+RESULTS_DIR   = Path("data/results")
+
+# ── Feature index groups (based on flat vector layout: 30 pf_mean + 73 per_system)
+# Per-flow (pf_mean) block: indices 0–29
+# Per-system scalar block: indices 30–42
+# Per-system pf_mean/pf_std block: indices 43–102
+
+# Packet-size feature indices within the per-flow block (mean of pf features)
+# pf layout: n_pkts_out(0), n_pkts_in(1), bytes_out(2), bytes_in(3),
+#            mean_sz_out(4), std_sz_out(5), p25_sz_out(6), p75_sz_out(7),
+#            mean_sz_in(8), std_sz_in(9), p25_sz_in(10), p75_sz_in(11),
+#            duration_s(12), mean_iat(13), std_iat(14), ...
+SIZE_FEATURE_INDICES = list(range(0, 12))   # bytes + size statistics (pf_mean block)
+# Also zero out the per-system total_bytes / total_packets (indices 34, 35)
+SIZE_FEATURE_INDICES += [34, 35]
+
+# Timing feature indices
+TIMING_FEATURE_INDICES = [12, 13, 14]       # duration, mean_iat, std_iat (pf_mean block)
+TIMING_FEATURE_INDICES += [36, 37, 38]      # total_duration, flow_start_spread, flow_end_spread
+
+# All feature indices that would be perturbed by dummy/cover traffic
+ALL_INDICES = list(range(103))
+
+
+def load_dataset(task: str):
+    label_file = PROCESSED_DIR / "labels.json"
+    labels_map = json.loads(label_file.read_text())
+    X_list, y_list = [], []
+    for npz_path in sorted(PROCESSED_DIR.glob("*.npz")):
+        run_id = npz_path.stem
+        if run_id not in labels_map:
+            continue
+        label = labels_map[run_id].get(task)
+        if label is None:
+            continue
+        d = np.load(npz_path, allow_pickle=False)
+        X_list.append(d["flat"])
+        y_list.append(label)
+    if not X_list:
+        raise ValueError(f"No samples for task={task}")
+    return np.stack(X_list), y_list
+
+
+def apply_defense(X: np.ndarray, defense: str, noise_std: float = 0.3) -> np.ndarray:
+    """Return a copy of X with the defense transformation applied."""
+    Xd = X.copy()
+    if defense == "padding":
+        Xd[:, SIZE_FEATURE_INDICES] = 0.0
+    elif defense == "timing":
+        Xd[:, TIMING_FEATURE_INDICES] = 0.0
+    elif defense == "dummy":
+        noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
+        Xd += noise
+    elif defense == "combined":
+        Xd[:, SIZE_FEATURE_INDICES] = 0.0
+        Xd[:, TIMING_FEATURE_INDICES] = 0.0
+        noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
+        Xd += noise
+    return Xd
+
+
+def overhead_fraction(defense: str) -> float:
+    """Fraction of feature dimensions modified (proxy for protocol overhead)."""
+    if defense == "padding":
+        return len(SIZE_FEATURE_INDICES) / 103
+    if defense == "timing":
+        return len(TIMING_FEATURE_INDICES) / 103
+    if defense == "dummy":
+        return 1.0
+    if defense == "combined":
+        modified = set(SIZE_FEATURE_INDICES) | set(TIMING_FEATURE_INDICES) | set(ALL_INDICES)
+        return len(modified) / 103
+    return 0.0
+
+
+def evaluate(task: str, noise_std: float) -> None:
+    from models.random_forest import RFClassifier
+    from sklearn.model_selection import StratifiedGroupKFold
+    from evaluation.metrics import classification_metrics
+
+    label_file = PROCESSED_DIR / "labels.json"
+    labels_map = json.loads(label_file.read_text())
+
+    X_list, y_list, group_list = [], [], []
+    for npz_path in sorted(PROCESSED_DIR.glob("*.npz")):
+        run_id = npz_path.stem
+        is_role_sample = "__role__" in run_id
+        if task == "role" and not is_role_sample:
+            continue
+        if task != "role" and is_role_sample:
+            continue
+        if run_id not in labels_map:
+            continue
+        info = labels_map[run_id]
+        label = info.get(task)
+        if label is None:
+            continue
+        d = np.load(npz_path, allow_pickle=False)
+        X_list.append(d["flat"])
+        y_list.append(label)
+        group_list.append(info.get("prompt_group", run_id))
+
+    if not X_list:
+        raise ValueError(f"No samples for task={task}")
+
+    X = np.stack(X_list)
+    n_splits = min(5, min(y_list.count(c) for c in set(y_list)))
+    if n_splits < 2:
+        logger.error("Too few samples per class for task=%s", task)
+        return
+
+    defenses = ["none", "padding", "timing", "dummy", "combined"]
+    results = {}
+
+    for defense in defenses:
+        Xd = apply_defense(X, defense, noise_std) if defense != "none" else X.copy()
+
+        kf = StratifiedGroupKFold(n_splits=n_splits)
+        accs, f1s = [], []
+        for train_idx, val_idx in kf.split(Xd, y_list, groups=group_list):
+            X_tr, X_val = Xd[train_idx], Xd[val_idx]
+            y_tr = [y_list[i] for i in train_idx]
+            y_val = [y_list[i] for i in val_idx]
+
+            clf = RFClassifier(task=task)
+            clf.fit(X_tr, y_tr)
+            preds = clf.predict(X_val)
+            m = classification_metrics(y_val, preds, sorted(set(y_list)), task)
+            accs.append(m["accuracy"])
+            f1s.append(m["macro_f1"])
+
+        mean_acc = float(np.mean(accs))
+        mean_f1  = float(np.mean(f1s))
+        overhead = overhead_fraction(defense)
+        results[defense] = {
+            "accuracy": mean_acc,
+            "macro_f1": mean_f1,
+            "overhead_fraction": overhead,
+        }
+        logger.info("defense=%-10s  acc=%.3f  f1=%.3f  overhead=%.1f%%",
+                    defense, mean_acc, mean_f1, overhead * 100)
+
+    # Print summary table
+    sep = "=" * 65
+    print(f"\n{sep}")
+    print(f"  C4 DEFENSE EVALUATION  task={task}")
+    print(sep)
+    print(f"  {'Defense':<12} {'Accuracy':>10} {'Macro-F1':>10} {'Overhead':>10} {'Acc drop':>10}")
+    print(f"  {'-'*55}")
+    baseline_acc = results["none"]["accuracy"]
+    for d, r in results.items():
+        drop = baseline_acc - r["accuracy"]
+        print(f"  {d:<12} {r['accuracy']:>10.3f} {r['macro_f1']:>10.3f} "
+              f"{r['overhead_fraction']:>9.1%} {drop:>+10.3f}")
+    print(sep)
+    print("  NOTE: overhead_fraction = fraction of feature dims zeroed/perturbed.")
+    print("  Real byte-level overhead requires re-collecting traces with live defenses.")
+    print(sep)
+
+    out_dir = RESULTS_DIR / "defense"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"defense_{task}.json").write_text(json.dumps(results, indent=2))
+    logger.info("Results saved → %s", out_dir / f"defense_{task}.json")
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="C4 defense evaluation")
+    p.add_argument("--task", choices=["workflow", "topology", "role"], default="workflow")
+    p.add_argument("--noise-std", type=float, default=0.3,
+                   help="Gaussian noise std for dummy/combined defense (default 0.3)")
+    args = p.parse_args()
+    evaluate(args.task, args.noise_std)

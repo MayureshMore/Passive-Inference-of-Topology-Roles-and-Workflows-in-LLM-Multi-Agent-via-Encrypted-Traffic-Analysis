@@ -1,0 +1,80 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+pip-wheel-metadata/
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ── Environment files (may contain secrets) ──────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── Data directories (large files, never commit raw pcaps or models) ─────────
+data/raw/
+data/processed/
+data/models/
+data/traces/
+data/results/
+
+# Allow .gitkeep placeholders so directories are tracked
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/models/.gitkeep
+!data/traces/.gitkeep
+!data/results/.gitkeep
+
+# ── Packet capture files ──────────────────────────────────────────────────────
+*.pcap
+*.pcapng
+*.cap
+
+# ── Trained model checkpoints ────────────────────────────────────────────────
+*.pkl
+*.pt
+*.pth
+*.onnx
+*.joblib
+
+# ── Jupyter notebooks (use scripts/ instead) ─────────────────────────────────
+*.ipynb
+.ipynb_checkpoints/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverrideAttribute
+
+# ── IntelliJ / PyCharm ────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+
+# ── VS Code ───────────────────────────────────────────────────────────────────
+.vscode/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Coverage ──────────────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ── Mininet / network emulation ───────────────────────────────────────────────
+*.mnlog

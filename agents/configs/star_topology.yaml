@@ -1,0 +1,33 @@
+# Star topology: orchestrator fans out to all leaf agents concurrently.
+# Edge pattern: O→E, O→R, O→V (3 parallel outbound requests + 3 responses)
+topology: star
+
+agents:
+  orchestrator:
+    role: orchestrator
+    port: 8000
+    downstream_agents:
+      - "http://{executor_host}:8001"
+      - "http://{retriever_host}:8002"
+      - "http://{validator_host}:8003"
+
+  executor:
+    role: executor
+    port: 8001
+    downstream_agents: []
+
+  retriever:
+    role: retriever
+    port: 8002
+    downstream_agents: []
+
+  validator:
+    role: validator
+    port: 8003
+    downstream_agents: []
+
+# Graph edges (directed): used for ground-truth labeling
+edges:
+  - [orchestrator, executor]
+  - [orchestrator, retriever]
+  - [orchestrator, validator]

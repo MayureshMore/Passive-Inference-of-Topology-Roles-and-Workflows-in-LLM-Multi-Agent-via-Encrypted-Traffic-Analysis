@@ -1,0 +1,33 @@
+# Chain topology: sequential pipeline O→E→R→V
+# Each agent passes its output to the next in line.
+# Edge pattern: strictly sequential, producing a clear temporal chain in traffic.
+topology: chain
+
+agents:
+  orchestrator:
+    role: orchestrator
+    port: 8000
+    downstream_agents:
+      - "http://{executor_host}:8001"
+
+  executor:
+    role: executor
+    port: 8001
+    downstream_agents:
+      - "http://{retriever_host}:8002"
+
+  retriever:
+    role: retriever
+    port: 8002
+    downstream_agents:
+      - "http://{validator_host}:8003"
+
+  validator:
+    role: validator
+    port: 8003
+    downstream_agents: []
+
+edges:
+  - [orchestrator, executor]
+  - [executor, retriever]
+  - [retriever, validator]

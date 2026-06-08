@@ -1,0 +1,39 @@
+# Mesh topology: orchestrator + peer-to-peer cross-links.
+# E and R call each other in addition to receiving from O;
+# V receives from both O and E, creating a more complex graph.
+topology: mesh
+
+agents:
+  orchestrator:
+    role: orchestrator
+    port: 8000
+    downstream_agents:
+      - "http://{executor_host}:8001"
+      - "http://{retriever_host}:8002"
+
+  executor:
+    role: executor
+    port: 8001
+    downstream_agents:
+      - "http://{retriever_host}:8002"
+      - "http://{validator_host}:8003"
+
+  retriever:
+    role: retriever
+    port: 8002
+    downstream_agents:
+      - "http://{validator_host}:8003"
+
+  validator:
+    role: validator
+    port: 8003
+    downstream_agents:
+      - "http://{orchestrator_host}:8000"  # feedback loop back to orchestrator
+
+edges:
+  - [orchestrator, executor]
+  - [orchestrator, retriever]
+  - [executor, retriever]
+  - [executor, validator]
+  - [retriever, validator]
+  - [validator, orchestrator]

@@ -1,0 +1,15 @@
+# Local testbed configuration (all agents on localhost, different ports)
+# Used for development and initial Phase 0 PoC.
+
+orchestrator: "127.0.0.1:8000"
+executor:     "127.0.0.1:8001"
+retriever:    "127.0.0.1:8002"
+validator:    "127.0.0.1:8003"
+
+interface: lo0        # macOS loopback; use "lo" on Linux
+
+ollama_base_url: "http://localhost:11434"
+ollama_model: "llama3.2:3b"
+
+# Testbed site label (used in cross-network evaluation)
+site: "us_local"
