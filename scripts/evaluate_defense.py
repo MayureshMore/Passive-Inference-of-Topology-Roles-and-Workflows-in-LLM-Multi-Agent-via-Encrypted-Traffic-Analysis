@@ -85,19 +85,33 @@ def load_dataset(task: str):
     return np.stack(X_list), y_list
 
 
+# Per-flow (role, 30-dim) feature layout:
+#   [0-11] packet counts + size stats, [12-14] timing, [15-19] burst stats, [20-29] cumul_bytes
+_SIZE_30   = list(range(0, 12))
+_TIMING_30 = [12, 13, 14, 18, 19]
+
+
+def _index_sets(dim: int) -> tuple[list[int], list[int]]:
+    """Return (size_indices, timing_indices) appropriate for the feature vector dimension."""
+    if dim == 30:
+        return _SIZE_30, _TIMING_30
+    return SIZE_FEATURE_INDICES, TIMING_FEATURE_INDICES
+
+
 def apply_defense(X: np.ndarray, defense: str, noise_std: float = 0.3) -> np.ndarray:
     """Return a copy of X with the defense transformation applied."""
     Xd = X.copy()
+    size_idx, timing_idx = _index_sets(X.shape[1])
     if defense == "padding":
-        Xd[:, SIZE_FEATURE_INDICES] = 0.0
+        Xd[:, size_idx] = 0.0
     elif defense == "timing":
-        Xd[:, TIMING_FEATURE_INDICES] = 0.0
+        Xd[:, timing_idx] = 0.0
     elif defense == "dummy":
         noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
         Xd += noise
     elif defense == "combined":
-        Xd[:, SIZE_FEATURE_INDICES] = 0.0
-        Xd[:, TIMING_FEATURE_INDICES] = 0.0
+        Xd[:, size_idx] = 0.0
+        Xd[:, timing_idx] = 0.0
         noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
         Xd += noise
     return Xd
