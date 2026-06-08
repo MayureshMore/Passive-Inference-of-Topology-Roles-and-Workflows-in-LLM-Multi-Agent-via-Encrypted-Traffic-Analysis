@@ -131,8 +131,15 @@ class FeatureExtractor:
                     size = int(pkt.length)
                     src_ip = str(pkt.ip.src)
                     dst_ip = str(pkt.ip.dst)
-                    flow_key = f"{src_ip}:{src_port}→{dst_ip}:{dst_port}"
-                    direction = 1 if src_port in self.agent_ports else -1
+                    # Canonical key: agent port always on the right (as "dst").
+                    # This merges both directions of a TCP connection into one flow.
+                    # direction=1 (from agent) = response; direction=-1 (to agent) = request.
+                    if dst_port in self.agent_ports:
+                        flow_key = f"{src_ip}:{src_port}→{dst_ip}:{dst_port}"
+                        direction = -1  # request: client → agent
+                    else:
+                        flow_key = f"{dst_ip}:{dst_port}→{src_ip}:{src_port}"
+                        direction = 1   # response: agent → client (key flipped)
                     packets.append((ts, size, flow_key, direction))
                 except AttributeError:
                     continue
@@ -158,8 +165,14 @@ class FeatureExtractor:
             size = len(pkt)
             src_ip = pkt[IP].src
             dst_ip = pkt[IP].dst
-            flow_key = f"{src_ip}:{src_port}→{dst_ip}:{dst_port}"
-            direction = 1 if src_port in self.agent_ports else -1
+            # Canonical key: agent port always on the right (as "dst").
+            # Merges both TCP directions into one bidirectional flow.
+            if dst_port in self.agent_ports:
+                flow_key = f"{src_ip}:{src_port}→{dst_ip}:{dst_port}"
+                direction = -1  # request: client → agent
+            else:
+                flow_key = f"{dst_ip}:{dst_port}→{src_ip}:{src_port}"
+                direction = 1   # response: agent → client (key flipped)
             packets.append((ts, size, flow_key, direction))
         return packets
 

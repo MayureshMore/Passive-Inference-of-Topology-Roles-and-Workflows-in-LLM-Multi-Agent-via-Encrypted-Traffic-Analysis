@@ -83,12 +83,17 @@ def load_dataset(
 
 # ── Closed-world evaluation ───────────────────────────────────────────────────
 
-# Flat vector indices of structural-leakage features (per_system slice starts at 30):
-# 30+7=37 flow_start_spread, 30+8=38 flow_end_spread, 30+9=39 max_concurrent_flows
-_STRUCTURAL_INDICES = [37, 38, 39]
+# All 13 per-system SCALAR indices (flat vector positions 30–42).
+# These encode flow counts, host pairs, byte volumes, timing spreads, and burst
+# rates — every one of them is structurally informative about topology type.
+# Zeroing only the 3 "obvious" features (spread + concurrent) was insufficient:
+# n_flows alone separates star (3) from chain (1) trivially.
+# A genuine non-tautological signal test must zero ALL of these.
+_ALL_SYSTEM_SCALAR_INDICES = list(range(30, 43))  # n_flows…bytes_out_ratio
 
 
-def run_closed_world(tasks: list[str], ablate_structural: bool = False) -> dict:
+def run_closed_world(tasks: list[str], ablate_structural: bool = False,
+                     rf_only: bool = False) -> dict:
     from evaluation.closed_world import ClosedWorldEval
 
     all_results = {}
@@ -103,8 +108,8 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False) -> dict:
 
         if ablate_structural and task == "topology":
             X = X.copy()
-            X[:, _STRUCTURAL_INDICES] = 0.0
-            logger.info("Ablation: zeroed structural features %s", _STRUCTURAL_INDICES)
+            X[:, _ALL_SYSTEM_SCALAR_INDICES] = 0.0
+            logger.info("Ablation: zeroed ALL 13 per-system scalar features (indices 30–42)")
 
         n_splits = min(5, _min_class_count(y))
         if n_splits < 2:
@@ -118,8 +123,11 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False) -> dict:
         rf_result = evaluator.run_rf(out_dir=out_dir)
         all_results[f"{task}/rf"] = rf_result
 
-        # Transformer — only if we have enough data (≥ 2 samples/class/fold)
-        if _min_class_count(y) >= n_splits * 2:
+        # Transformer: uninformative at < ~1,000 traces; suppress by default.
+        # Re-enable once you have 1,000–2,000+ traces per class.
+        if rf_only:
+            logger.info("Skipping Transformer [%s] (--rf-only; need 1k+ traces first)", task)
+        elif _min_class_count(y) >= n_splits * 2:
             logger.info("--- Closed-world Transformer [%s] ---", task)
             try:
                 tr_result = evaluator.run_transformer(
@@ -132,7 +140,7 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False) -> dict:
             except Exception as exc:
                 logger.warning("Transformer failed for task=%s: %s", task, exc)
         else:
-            logger.info("Skipping Transformer for task=%s (too few samples per fold)", task)
+            logger.info("Skipping Transformer [%s] (too few samples per fold)", task)
 
     return all_results
 
@@ -273,27 +281,26 @@ def main(args: argparse.Namespace) -> None:
     (RESULTS_DIR / "closed_world").mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / "open_world").mkdir(parents=True, exist_ok=True)
 
-    # C1 reframing note: what's measured is topology-TYPE classification
-    # (star/chain/mesh as a whole-trace label), not edge reconstruction.
-    # Per-system features flow_start_spread, flow_end_spread, max_concurrent_flows
-    # are "structural leakage" — they almost directly encode topology type.
-    # --ablate-structural zeroes those three indices to test whether timing
-    # signal survives without tautological features.
+    # C1 note: what's measured is topology-TYPE classification (star/chain/mesh),
+    # not edge reconstruction. --ablate-structural zeroes all 13 per-system scalar
+    # features (indices 30-42) — counts, volumes, timing spreads, burst rates.
+    # That is the honest non-tautological test.
     tasks = ["workflow", "topology", "role"]
 
     closed: dict = {}
     open_: dict = {}
 
     if args.mode in ("closed_world", "all"):
-        closed = run_closed_world(tasks, ablate_structural=args.ablate_structural)
+        closed = run_closed_world(tasks, ablate_structural=False, rf_only=args.rf_only)
 
     if args.mode in ("open_world", "all"):
         open_ = run_open_world(tasks)
 
-    # C1 ablation: re-run topology with structural features zeroed out
+    # C1 ablation: re-run topology with ALL 13 per-system scalar features zeroed.
+    # This is the honest non-tautological test of whether timing/size signal survives.
     if args.ablate_structural and args.mode in ("closed_world", "all"):
-        logger.info("=== C1 ABLATION: dropping structural-leakage features ===")
-        ablation = run_closed_world(["topology"], ablate_structural=True)
+        logger.info("=== C1 ABLATION: zeroing all 13 per-system scalar features (30–42) ===")
+        ablation = run_closed_world(["topology"], ablate_structural=True, rf_only=args.rf_only)
         for k, v in ablation.items():
             closed[f"{k}__ablated"] = v
 
@@ -322,6 +329,8 @@ if __name__ == "__main__":
     p.add_argument("--mode", choices=["closed_world", "open_world", "all"],
                    default="all")
     p.add_argument("--ablate-structural", action="store_true",
-                   help="Zero out tautological topology features (flow_start_spread, "
-                        "flow_end_spread, max_concurrent_flows) to test non-trivial signal")
+                   help="Zero all 13 per-system scalar features (indices 30–42) for topology "
+                        "task — the honest test for non-tautological signal")
+    p.add_argument("--rf-only", action="store_true",
+                   help="Skip Transformer (uninformative at < ~1,000 traces per class)")
     main(p.parse_args())

@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
-Defense evaluation script (proposal §C4).
+Feature sensitivity analysis for proposed defenses (proposal §C4 pre-study).
 
-Measures the trade-off between defense overhead and attacker accuracy drop.
-Works by synthetically applying defense transformations to the flat feature
-vectors extracted from real traces, then re-running the RF attack model.
+This script is NOT a live defense evaluation.  It synthetically modifies the
+flat feature vectors to approximate what each defense would do to the features,
+then measures how much RF accuracy drops.  Real defense evaluation requires
+re-collecting pcap traces with the defense middleware running and re-extracting.
 
-Defenses modelled:
-  padding      — zero out all packet-size features (simulates constant-size
-                 padded packets; attacker sees no size signal)
-  timing       — zero out all inter-arrival and timing features (simulates
-                 schedule-randomisation; attacker sees no timing signal)
-  dummy        — add Gaussian noise to all features (simulates dummy/cover
-                 traffic that inflates every statistic by a random amount)
-  combined     — all three together
+Defenses modelled (feature-level approximation):
+  padding  — simulate constant-size padding by inflating all size features by
+             a fixed fraction (padding ADDS bytes; attacker still sees totals
+             but per-packet size variance collapses).
+  timing   — zero out all inter-arrival and timing features (simulates
+             schedule-randomisation; attacker sees no timing signal)
+  dummy    — add Gaussian noise to all features (simulates dummy/cover
+             traffic that inflates every statistic by a random amount)
+  combined — all three together
 
-Overhead is reported as the fraction of feature dimensions zeroed/perturbed
-(proxy for protocol overhead; real per-byte overhead requires re-collecting
-traces with the live defense middleware, which is the next experiment step).
+Overhead column = fraction of feature dims modified (NOT real byte overhead).
+Real per-byte / per-latency overhead requires re-collecting traces with the
+live defense middleware — that is the next experiment step (C4 proper).
 
 Usage:
     python scripts/evaluate_defense.py
@@ -98,19 +100,25 @@ def _index_sets(dim: int) -> tuple[list[int], list[int]]:
     return SIZE_FEATURE_INDICES, TIMING_FEATURE_INDICES
 
 
+_PADDING_SCALE = 0.5  # simulate 50% extra bytes per packet added as padding
+
+
 def apply_defense(X: np.ndarray, defense: str, noise_std: float = 0.3) -> np.ndarray:
     """Return a copy of X with the defense transformation applied."""
     Xd = X.copy()
     size_idx, timing_idx = _index_sets(X.shape[1])
     if defense == "padding":
-        Xd[:, size_idx] = 0.0
+        # Padding ADDS bytes — size features grow, not vanish.
+        # Multiply all size features by (1 + padding_scale): attacker still sees
+        # total-byte signal but per-packet variance collapses.
+        Xd[:, size_idx] = Xd[:, size_idx] * (1.0 + _PADDING_SCALE)
     elif defense == "timing":
         Xd[:, timing_idx] = 0.0
     elif defense == "dummy":
         noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
         Xd += noise
     elif defense == "combined":
-        Xd[:, size_idx] = 0.0
+        Xd[:, size_idx] = Xd[:, size_idx] * (1.0 + _PADDING_SCALE)
         Xd[:, timing_idx] = 0.0
         noise = np.random.default_rng(42).normal(0, noise_std, Xd.shape).astype(np.float32)
         Xd += noise
@@ -199,20 +207,23 @@ def evaluate(task: str, noise_std: float) -> None:
                     defense, mean_acc, mean_f1, overhead * 100)
 
     # Print summary table
-    sep = "=" * 65
+    sep = "=" * 70
     print(f"\n{sep}")
-    print(f"  C4 DEFENSE EVALUATION  task={task}")
+    print(f"  FEATURE SENSITIVITY ANALYSIS  task={task}")
+    print(f"  (NOT live defense — feature-level approximation only)")
     print(sep)
-    print(f"  {'Defense':<12} {'Accuracy':>10} {'Macro-F1':>10} {'Overhead':>10} {'Acc drop':>10}")
-    print(f"  {'-'*55}")
+    print(f"  {'Defense':<12} {'Accuracy':>10} {'Macro-F1':>10} {'~Overhead':>12} {'Acc drop':>10}")
+    print(f"  {'-'*57}")
     baseline_acc = results["none"]["accuracy"]
     for d, r in results.items():
         drop = baseline_acc - r["accuracy"]
         print(f"  {d:<12} {r['accuracy']:>10.3f} {r['macro_f1']:>10.3f} "
-              f"{r['overhead_fraction']:>9.1%} {drop:>+10.3f}")
+              f"{r['overhead_fraction']:>11.1%} {drop:>+10.3f}")
     print(sep)
-    print("  NOTE: overhead_fraction = fraction of feature dims zeroed/perturbed.")
-    print("  Real byte-level overhead requires re-collecting traces with live defenses.")
+    print("  ~Overhead = fraction of feature dims perturbed (NOT real byte/latency overhead).")
+    print("  padding: size features × 1.5 (50% extra bytes; does NOT zero them).")
+    print("  timing:  zeroes IAT/duration features (models schedule randomisation).")
+    print("  Real overhead requires re-collecting traces with live defense middleware.")
     print(sep)
 
     out_dir = RESULTS_DIR / "defense"
@@ -222,7 +233,7 @@ def evaluate(task: str, noise_std: float) -> None:
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="C4 defense evaluation")
+    p = argparse.ArgumentParser(description="Feature sensitivity analysis for proposed defenses (C4 pre-study)")
     p.add_argument("--task", choices=["workflow", "topology", "role"], default="workflow")
     p.add_argument("--noise-std", type=float, default=0.3,
                    help="Gaussian noise std for dummy/combined defense (default 0.3)")
