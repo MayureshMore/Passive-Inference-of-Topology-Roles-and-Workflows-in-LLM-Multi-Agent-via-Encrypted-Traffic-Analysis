@@ -5,15 +5,17 @@ Feature extraction script.
 Reads all .pcap files from data/raw/ (with matching .json label sidecars),
 extracts TraceFeatures for each, and writes:
   - data/processed/<run_id>.npz          per-trace flat+burst features
-  - data/processed/<run_id>__role__<port>.npz  per-flow features for C2
+  - data/processed/<run_id>__role__<port>.npz  per-agent features for C2
   - data/processed/labels.json           run_id → {workflow, topology, prompt_group}
                                          + <run_id>__role__<port> → {role, workflow, topology}
 
 C2 (role classification) design:
-  Each flow_key encodes "srcip:srcport→dstip:dstport".  We extract the
-  destination port and look it up in the sidecar's agent_endpoints dict to
-  assign a role label.  This produces ~4-5 per-flow samples per trace
-  (one per agent connection), each labelled with the destination agent's role.
+  All TCP connections to the same agent port within one trace are pooled
+  into a single feature vector (one sample per agent per trace).  This
+  prevents the bug where multiple connections to the same port would
+  overwrite each other, leaving the last connection's features in the NPZ
+  while n_role overcounted the writes.  Pooling also better captures the
+  total traffic exchanged with each agent, not just one arbitrary connection.
 
 Usage:
     python scripts/extract_features.py --raw data/raw --out data/processed
@@ -87,9 +89,14 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
         npz_path = out_dir / f"{run.run_id}.npz"
         features.save(npz_path)
         prompt = sidecar.get("input_prompt", "")
+        # parallelism: binary label replacing topology-type.
+        # chain → "sequential" (each agent waits for previous output)
+        # star/mesh → "parallel" (orchestrator fans out concurrently)
+        parallelism = "sequential" if run.topology.value == "chain" else "parallel"
         labels_map[run.run_id] = {
             "workflow": run.workflow_class.value,
             "topology": run.topology.value,
+            "parallelism": parallelism,
             "prompt_group": _prompt_group(prompt),
         }
         n_ok += 1
@@ -107,30 +114,48 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
             continue
 
         from collections import defaultdict
+
+        # Step 1: group individual TCP connections by flow key
         by_flow: dict[str, list[tuple[float, int, int]]] = defaultdict(list)
         for ts, size, fk, direction in packets:
             by_flow[fk].append((ts, size, direction))
 
+        # Step 2: pool all flows that share the same destination agent port.
+        # Multiple TCP connections to the same agent within one trace
+        # (retries, keep-alive reconnects, pipelined requests) must be
+        # aggregated into one sample — not overwritten by iteration order.
+        by_agent_port: dict[str, list[tuple[str, list[tuple[float, int, int]]]]] = defaultdict(list)
         for fk, pkts in by_flow.items():
-            # Destination port from flow_key "srcip:srcport→dstip:dstport"
             parts = fk.split("→")
             if len(parts) != 2:
                 continue
             dst_port = parts[1].rsplit(":", 1)[-1]
-            role = port_role.get(dst_port)
-            if role is None:
-                continue
+            if port_role.get(dst_port) is not None:
+                by_agent_port[dst_port].append((fk, pkts))
 
-            # Burst-segment this flow
-            flow_packets_full = [(ts, size, fk, d) for ts, size, d in pkts]
-            flow_bursts = extractor.segmenter.segment(flow_packets_full)
-            pf = compute_per_flow(fk, flow_bursts, pkts)
-            pf_vec = pf.to_vector()  # 30-dim
+        # Step 3: one NPZ per (run_id, agent_port) using pooled packets + bursts
+        for dst_port, flow_list in by_agent_port.items():
+            role = port_role[dst_port]
 
-            # Save: flat=per-flow vector, burst_sequence/gap_sequence from this flow
-            if flow_bursts:
-                burst_seq = np.stack([b.to_feature_vector() for b in flow_bursts], axis=0)
-                gap_seq = extractor.segmenter.gap_sequence(flow_bursts)
+            # Pool all raw packets from every connection to this agent
+            pooled_pkts: list[tuple[float, int, int]] = []
+            for _, pkts in flow_list:
+                pooled_pkts.extend(pkts)
+
+            # Pool and sort all bursts chronologically
+            pooled_bursts = []
+            for fk, pkts in flow_list:
+                flow_packets_full = [(ts, size, fk, d) for ts, size, d in pkts]
+                pooled_bursts.extend(extractor.segmenter.segment(flow_packets_full))
+            pooled_bursts.sort(key=lambda b: b.start_ts)
+
+            # Compute per-flow features on the pooled view
+            pf = compute_per_flow(f"pooled→{dst_port}", pooled_bursts, pooled_pkts)
+            pf_vec = pf.to_vector()  # 35-dim
+
+            if pooled_bursts:
+                burst_seq = np.stack([b.to_feature_vector() for b in pooled_bursts], axis=0)
+                gap_seq = extractor.segmenter.gap_sequence(pooled_bursts)
             else:
                 burst_seq = np.zeros((0, 10), dtype=np.float32)
                 gap_seq = np.zeros(0, dtype=np.float32)
@@ -147,6 +172,7 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
                 "role": role,
                 "workflow": run.workflow_class.value,
                 "topology": run.topology.value,
+                "parallelism": parallelism,
                 "prompt_group": _prompt_group(prompt),
             }
             n_role += 1

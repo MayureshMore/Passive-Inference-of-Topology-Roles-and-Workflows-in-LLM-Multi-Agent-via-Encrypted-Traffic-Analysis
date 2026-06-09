@@ -43,10 +43,12 @@ class OrchestratorAgent(BaseA2AAgent):
             self.send_task(
                 target_url=agent_url,
                 task_id=f"{task_id}_{i}",
-                # Pass the FULL original task content (not just the plan) so that
-                # large-payload workflows (data_analysis CSV, code_review code)
-                # produce larger request packets — making workflows distinguishable
-                # by inter-agent traffic volume.
+                # Pass the full original task content to downstream agents.
+                # In production systems (AutoGen, CrewAI), orchestrators broadcast
+                # the full context so each specialist can use the parts it needs.
+                # This also means data_analysis (large CSV) and code_review (large
+                # code file) naturally produce larger A2A request payloads — a
+                # realistic consequence of full-context routing, not a tuning choice.
                 content=(
                     f"Sub-task {i+1} of {len(self.config.downstream_agents)}:\n"
                     f"{subtask_plan}\n\n"

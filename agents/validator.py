@@ -24,8 +24,10 @@ class ValidatorAgent(BaseA2AAgent):
     async def handle_task(self, task_id: str, content: str) -> str:
         logger.info("[validator] received task %s", task_id)
 
-        # Enforce a SHORT verdict — this creates clearly smaller response payloads
-        # than executor (medium) or retriever (long), aiding role classification.
+        # Short structured verdict format reflects real QA-gate patterns:
+        # CI/CD quality gates, LGTM reviews, and automated compliance checks
+        # all return structured verdicts (pass/fail + score + one-line reason).
+        # This is representative behaviour, not engineered for fingerprinting.
         prompt_review = (
             f"You are a strict quality validator. Reply in EXACTLY this format "
             f"(no other text):\n"

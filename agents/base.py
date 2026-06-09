@@ -37,6 +37,12 @@ class AgentConfig(BaseModel):
     ollama_model: str = "llama3.2:3b"
     # Downstream agents this agent may call (filled in by topology config)
     downstream_agents: list[str] = []
+    # Retriever-specific: how many LLM-call phases to execute.
+    # 1 = direct QA  (LlamaIndex SimpleRetriever style)
+    # 2 = decompose + synthesise  (dense/BM25 retriever abstractions)
+    # 3 = decompose → retrieve-per-term → synthesise  (LangChain FLARE, default)
+    # Used by ablation experiment to test whether role signal survives phase reduction.
+    n_retrieval_phases: int = 3
 
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"

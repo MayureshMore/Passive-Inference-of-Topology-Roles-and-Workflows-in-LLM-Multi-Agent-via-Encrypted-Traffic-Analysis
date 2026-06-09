@@ -104,13 +104,13 @@ async def main(args: argparse.Namespace) -> None:
         for i, role in enumerate(["orchestrator", "executor", "retriever", "validator"])
     }
 
-    # Topology edges — read from config
+    # Topology edges — must match run_pilot.py TOPO_EDGES exactly so labels
+    # are consistent between collect_traces.py and run_pilot.py collections.
     topo_edges = {
         "star": [["orchestrator","executor"],["orchestrator","retriever"],["orchestrator","validator"]],
         "chain": [["orchestrator","executor"],["executor","retriever"],["retriever","validator"]],
         "mesh": [["orchestrator","executor"],["orchestrator","retriever"],
-                 ["executor","retriever"],["executor","validator"],
-                 ["retriever","validator"],["validator","orchestrator"]],
+                 ["executor","retriever"],["retriever","validator"]],
     }
 
     recorder = PacketRecorder(

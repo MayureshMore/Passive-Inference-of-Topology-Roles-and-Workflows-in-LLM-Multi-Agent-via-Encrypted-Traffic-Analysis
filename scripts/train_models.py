@@ -133,13 +133,13 @@ def train_transformer(task: str, epochs: int = 30) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train A2A fingerprinting models")
     parser.add_argument("--task", required=True,
-                        choices=["workflow", "role", "topology", "all"])
+                        choices=["workflow", "role", "parallelism", "topology", "all"])
     parser.add_argument("--model", required=True, choices=["rf", "transformer", "both"])
     parser.add_argument("--epochs", type=int, default=30,
                         help="Epochs for Transformer training")
     args = parser.parse_args()
 
-    tasks = ["workflow", "role", "topology"] if args.task == "all" else [args.task]
+    tasks = ["workflow", "role", "parallelism", "topology"] if args.task == "all" else [args.task]
 
     for task in tasks:
         logger.info("=== Training task: %s ===", task)

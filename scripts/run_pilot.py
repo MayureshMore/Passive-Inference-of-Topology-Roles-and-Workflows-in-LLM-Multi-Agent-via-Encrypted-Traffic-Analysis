@@ -86,21 +86,27 @@ def _url(role: str, host: str = "127.0.0.1") -> str:
 
 # ── Agent config builders ─────────────────────────────────────────────────────
 
-def _agent_configs(topology: str, model: str) -> dict[str, AgentConfig]:
+def _agent_configs(topology: str, model: str,
+                   n_retrieval_phases: int = 3) -> dict[str, AgentConfig]:
     """
     Return per-role AgentConfig for executor/retriever/validator with
     downstream_agents set to match the topology's routing.
+    n_retrieval_phases controls retriever depth (1/2/3) for ablation runs.
     """
+    def _retriever_cfg(downstream: list[str]) -> AgentConfig:
+        return AgentConfig(
+            role=AgentRole.RETRIEVER, port=PORTS["retriever"],
+            downstream_agents=downstream, ollama_model=model,
+            n_retrieval_phases=n_retrieval_phases,
+        )
+
     if topology == "star":
         return {
             "executor": AgentConfig(
                 role=AgentRole.EXECUTOR, port=PORTS["executor"],
                 downstream_agents=[], ollama_model=model,
             ),
-            "retriever": AgentConfig(
-                role=AgentRole.RETRIEVER, port=PORTS["retriever"],
-                downstream_agents=[], ollama_model=model,
-            ),
+            "retriever": _retriever_cfg([]),
             "validator": AgentConfig(
                 role=AgentRole.VALIDATOR, port=PORTS["validator"],
                 downstream_agents=[], ollama_model=model,
@@ -113,10 +119,7 @@ def _agent_configs(topology: str, model: str) -> dict[str, AgentConfig]:
                 role=AgentRole.EXECUTOR, port=PORTS["executor"],
                 downstream_agents=[_url("retriever")], ollama_model=model,
             ),
-            "retriever": AgentConfig(
-                role=AgentRole.RETRIEVER, port=PORTS["retriever"],
-                downstream_agents=[_url("validator")], ollama_model=model,
-            ),
+            "retriever": _retriever_cfg([_url("validator")]),
             "validator": AgentConfig(
                 role=AgentRole.VALIDATOR, port=PORTS["validator"],
                 downstream_agents=[], ollama_model=model,
@@ -124,17 +127,12 @@ def _agent_configs(topology: str, model: str) -> dict[str, AgentConfig]:
         }
 
     if topology == "mesh":
-        # executor forwards to retriever; retriever forwards to validator.
-        # validator has no downstream (avoids the unbounded retry loop).
         return {
             "executor": AgentConfig(
                 role=AgentRole.EXECUTOR, port=PORTS["executor"],
                 downstream_agents=[_url("retriever")], ollama_model=model,
             ),
-            "retriever": AgentConfig(
-                role=AgentRole.RETRIEVER, port=PORTS["retriever"],
-                downstream_agents=[_url("validator")], ollama_model=model,
-            ),
+            "retriever": _retriever_cfg([_url("validator")]),
             "validator": AgentConfig(
                 role=AgentRole.VALIDATOR, port=PORTS["validator"],
                 downstream_agents=[], ollama_model=model,
@@ -198,6 +196,7 @@ async def run_topology(
     n: int,
     model: str,
     out_dir: Path,
+    n_retrieval_phases: int = 3,
 ) -> dict[str, dict]:
     logger.info("")
     logger.info("=" * 60)
@@ -210,7 +209,7 @@ async def run_topology(
     await asyncio.sleep(0.6)
 
     # Start downstream agents — keep agent refs for graceful shutdown
-    configs = _agent_configs(topology, model)
+    configs = _agent_configs(topology, model, n_retrieval_phases=n_retrieval_phases)
     agent_classes = {
         "executor": ExecutorAgent,
         "retriever": RetrieverAgent,
@@ -315,8 +314,11 @@ async def main(args: argparse.Namespace) -> None:
     out_dir    = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Pilot config: topologies=%s  workflows=%s  n=%d  model=%s  out=%s",
-                topologies, workflows, args.n, args.model, out_dir)
+    logger.info(
+        "Pilot config: topologies=%s  workflows=%s  n=%d  model=%s  "
+        "retriever_phases=%d  out=%s",
+        topologies, workflows, args.n, args.model, args.retriever_phases, out_dir,
+    )
 
     all_stats: dict[str, dict] = {}
     for topology in topologies:
@@ -326,6 +328,7 @@ async def main(args: argparse.Namespace) -> None:
             n=args.n,
             model=args.model,
             out_dir=out_dir,
+            n_retrieval_phases=args.retriever_phases,
         )
         all_stats.update(stats)
 
@@ -368,6 +371,10 @@ def _parse() -> argparse.Namespace:
                    help="Ollama model name")
     p.add_argument("--out", default="data/raw",
                    help="Output directory for pcap + label files")
+    p.add_argument("--retriever-phases", type=int, default=3, choices=[1, 2, 3],
+                   dest="retriever_phases",
+                   help="Retriever LLM phases: 1=direct QA, 2=decompose+synth, "
+                        "3=decompose+retrieve+synth (default). Used for ablation.")
     return p.parse_args()
 
 

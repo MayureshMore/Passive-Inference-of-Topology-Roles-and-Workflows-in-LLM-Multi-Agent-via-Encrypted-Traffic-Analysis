@@ -256,7 +256,7 @@ def evaluate(task: str, noise_std: float) -> None:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Feature sensitivity analysis for proposed defenses (C4 pre-study)")
-    p.add_argument("--task", choices=["workflow", "topology", "role"], default="workflow")
+    p.add_argument("--task", choices=["workflow", "role", "parallelism", "topology"], default="workflow")
     p.add_argument("--noise-std", type=float, default=0.3,
                    help="Gaussian noise std for dummy/combined defense (default 0.3)")
     args = p.parse_args()

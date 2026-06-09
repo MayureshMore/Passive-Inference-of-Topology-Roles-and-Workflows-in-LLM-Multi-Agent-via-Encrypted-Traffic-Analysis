@@ -151,15 +151,75 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
 
 # ── Open-world evaluation ─────────────────────────────────────────────────────
 
+def _tune_rejection_threshold(
+    cal_clf,
+    label_encoder,
+    X_known_val: np.ndarray,
+    y_known_val: list[str],
+    X_unknown_val: np.ndarray,
+) -> float:
+    """
+    Sweep thresholds on a (known-val + unknown-val) split.
+    Maximise harmonic mean of known-class accuracy and unknown rejection rate.
+    Prevents both degenerate extremes: reject-all (T→1) and accept-all (T→0).
+    """
+    proba_kn = cal_clf.predict_proba(X_known_val)
+    proba_unk = cal_clf.predict_proba(X_unknown_val)
+    max_p_kn = proba_kn.max(axis=1)
+    max_p_unk = proba_unk.max(axis=1)
+    pred_kn_enc = proba_kn.argmax(axis=1)
+    y_kn_enc = label_encoder.transform(y_known_val)
+
+    best_T, best_score = 0.5, -1.0
+    for T in np.linspace(0.05, 0.95, 37):
+        # Known accuracy: correctly predicted AND not rejected
+        accepted = max_p_kn >= T
+        known_acc = float(((pred_kn_enc == y_kn_enc) & accepted).sum()) / max(len(y_known_val), 1)
+        # Unknown rejection rate: fraction of unknown samples correctly rejected
+        unk_rej = float((max_p_unk < T).sum()) / max(len(X_unknown_val), 1)
+        # Harmonic mean of both — balanced objective
+        score = (2 * known_acc * unk_rej / (known_acc + unk_rej)) if (known_acc + unk_rej) > 0 else 0.0
+        if score > best_score:
+            best_score, best_T = score, float(T)
+    return best_T
+
+
+class _CalibratedModel:
+    """
+    Wraps CalibratedClassifierCV + LabelEncoder to match OpenWorldEval's
+    model interface (predict / predict_proba returning string labels).
+    """
+    def __init__(self, cal_pipeline, label_encoder) -> None:
+        self.cal_pipeline = cal_pipeline
+        self.label_encoder = label_encoder
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        return self.cal_pipeline.predict_proba(X)
+
+    def predict(self, X: np.ndarray) -> list[str]:
+        enc = self.cal_pipeline.predict(X)
+        return list(self.label_encoder.inverse_transform(enc))
+
+
 def run_open_world(tasks: list[str]) -> dict:
     """
-    Leave-one-class-out open-world evaluation.
+    Leave-one-class-out open-world evaluation with calibrated rejection.
 
-    For each class C:
-      - Train RF on all samples except class C
-      - Evaluate: samples of known classes should be identified; samples of C
-        should be rejected as "unknown" (confidence below threshold)
+    For each held-out class C:
+      1. Split known-class data 75 / 25 into train and val/test.
+      2. Fit RF on train; calibrate probabilities with isotonic regression
+         (CalibratedClassifierCV eliminates RF overconfidence).
+      3. Tune rejection threshold on (val-known + first half of unknown)
+         to maximise HM(known_acc, unknown_rejection_rate).
+      4. Evaluate on (val-known + second half of unknown) with tuned threshold.
+
+    Fixes two prior bugs:
+      - train == test (known test set was the same as training set)
+      - fixed threshold 0.6 on uncalibrated probabilities (RF overconfidence
+        meant almost nothing was ever rejected)
     """
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.model_selection import StratifiedShuffleSplit
     from models.random_forest import RFClassifier
     from evaluation.open_world import OpenWorldEval
 
@@ -180,35 +240,70 @@ def run_open_world(tasks: list[str]) -> dict:
         task_results: list[dict] = []
 
         for held_out in classes:
-            # Build train set: all classes except held_out
-            mask_train = [label != held_out for label in y]
-            X_train = X[np.array(mask_train)]
-            y_train = [label for label, m in zip(y, mask_train) if m]
+            # ── partition ───────────────────────────────────────────────────
+            mask_known = np.array([label != held_out for label in y])
+            X_known = X[mask_known]
+            y_known = [label for label in y if label != held_out]
+            X_unknown = X[~mask_known]
 
-            # Build known test set (same classes as training)
-            mask_known_test = [label != held_out for label in y]
-            X_known_test = X[np.array(mask_known_test)]
-            y_known_test = [label for label, m in zip(y, mask_known_test) if m]
-
-            # Unknown test set: held-out class
-            mask_unknown = [label == held_out for label in y]
-            X_unknown = X[np.array(mask_unknown)]
-
-            if len(X_train) < 4 or len(X_unknown) < 1:
+            if len(X_known) < 8 or len(X_unknown) < 4:
                 continue
 
-            clf = RFClassifier(task=task)
-            clf.fit(X_train, y_train)
+            # ── 75/25 split on known data (proper train vs eval) ────────────
+            min_class_n = min(y_known.count(c) for c in set(y_known))
+            test_size = max(0.2, min(0.3, 1.0 - 6.0 / max(min_class_n, 1)))
+            sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+            for tr_idx, te_idx in sss.split(X_known, y_known):
+                X_kn_train = X_known[tr_idx]
+                y_kn_train = [y_known[i] for i in tr_idx]
+                X_kn_val = X_known[te_idx]
+                y_kn_val = [y_known[i] for i in te_idx]
 
-            evaluator = OpenWorldEval(
-                known_features=X_known_test,
-                known_labels=y_known_test,
-                unknown_features=X_unknown,
-                task=task,
-                threshold=0.6,
+            # ── split unknown: half for threshold tuning, half for eval ─────
+            mid = max(1, len(X_unknown) // 2)
+            X_unk_tune = X_unknown[:mid]
+            X_unk_eval = X_unknown[mid:]
+
+            # ── fit RF ──────────────────────────────────────────────────────
+            clf = RFClassifier(task=task)
+            clf.fit(X_kn_train, y_kn_train)
+
+            # ── calibrate probabilities with isotonic regression ────────────
+            # cv='prefit' maps the already-fitted pipeline's raw outputs
+            # through a held-out isotonic regression, producing calibrated
+            # probabilities that are not pathologically overconfident.
+            y_kn_train_enc = clf.label_encoder.transform(y_kn_train)
+            cal_cv = min(3, _min_class_count(y_kn_train))
+            if cal_cv >= 2:
+                cal_pipeline = CalibratedClassifierCV(
+                    clf.pipeline, cv=cal_cv, method="isotonic"
+                )
+                cal_pipeline.fit(X_kn_train, y_kn_train_enc)
+            else:
+                # Too few samples to calibrate — fall back to uncalibrated
+                logger.warning("task=%s held_out=%s: too few samples for calibration, using raw RF", task, held_out)
+                cal_pipeline = clf.pipeline
+                cal_pipeline  # already fitted
+
+            # ── tune threshold on val-known + first half of unknown ─────────
+            best_T = _tune_rejection_threshold(
+                cal_pipeline, clf.label_encoder,
+                X_kn_val, y_kn_val, X_unk_tune,
             )
-            result = evaluator.run(model=clf, out_dir=out_dir)
+            logger.info("  open-world  task=%-10s  held_out=%-20s  tuned_T=%.3f", task, held_out, best_T)
+
+            # ── evaluate with tuned threshold on val + second half unknown ──
+            cal_model = _CalibratedModel(cal_pipeline, clf.label_encoder)
+            evaluator = OpenWorldEval(
+                known_features=X_kn_val,
+                known_labels=y_kn_val,
+                unknown_features=X_unk_eval,
+                task=task,
+                threshold=best_T,
+            )
+            result = evaluator.run(model=cal_model, out_dir=out_dir)
             result["held_out_class"] = held_out
+            result["tuned_threshold"] = best_T
             task_results.append(result)
 
         if task_results:
@@ -226,44 +321,60 @@ def print_results(closed: dict, open_: dict) -> None:
         print(f"\n{sep}")
         print("  CLOSED-WORLD RESULTS")
         print(sep)
-        print(f"  {'Task / Model':<30} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
-        print(f"  {'-'*56}")
+        print(f"  {'Task / Model':<34} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
+        print(f"  {'-'*60}")
 
         for key, res in closed.items():
             task, model = key.rsplit("/", 1)
+            ablated = key.endswith("__ablated")
             if "cv" in res:
-                # RF format: res["cv"]["accuracy"]["mean"]
                 cv = res["cv"]
                 acc     = cv.get("accuracy", {}).get("mean", 0)
                 f1      = cv.get("f1_macro", {}).get("mean", 0)
                 acc_std = cv.get("accuracy", {}).get("std", 0)
             else:
-                # Transformer format: res["mean_accuracy"]
                 acc     = res.get("mean_accuracy", 0)
                 f1      = res.get("mean_macro_f1", 0)
                 acc_std = res.get("std_accuracy", 0)
 
-            n_classes = 4 if task == "workflow" else 3
+            if "workflow" in task:
+                n_classes = 4
+            elif task == "parallelism":
+                n_classes = 2
+            else:
+                n_classes = 3
             random_baseline = 1.0 / n_classes
             above = "✓" if acc > random_baseline else "✗"
+            label = f"{task} / {model}"
+            if ablated:
+                label += "  [no structural scalars]"
+            print(f"  {label:<34} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
 
-            print(f"  {f'{task} / {model}':<30} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
+        # Topology note: trivially separable because routing config determines
+        # the entire traffic graph; the ablation (zero drop) confirms per-system
+        # scalar features are unused, not that signal is subtle.
+        if any("topology" in k for k in closed):
+            print(f"\n  NOTE topology: trivially separable by routing structure —")
+            print(f"  not a subtle side-channel. Ablation zero-drop confirms structural")
+            print(f"  features are redundant (pf_top1/pf_top2 encode the same info).")
+            print(f"  Use 'parallelism' task (sequential vs parallel) for honest C1 claim.")
 
     if open_:
         print(f"\n{sep}")
-        print("  OPEN-WORLD RESULTS  (leave-one-class-out)")
+        print("  OPEN-WORLD RESULTS  (leave-one-class-out, calibrated RF, tuned threshold)")
         print(sep)
-        print(f"  {'Task / Held-out':<35} {'Reject rate':>12} {'Avg Prec':>10}")
-        print(f"  {'-'*58}")
+        print(f"  {'Task / Held-out':<35} {'T':>6} {'Reject%':>9} {'Avg Prec':>10}")
+        print(f"  {'-'*62}")
 
         for task, runs in open_.items():
             for r in runs:
                 held = r.get("held_out_class", "?")
+                T    = r.get("tuned_threshold", r.get("threshold", 0))
                 rej  = r.get("unknown_rejection_rate", 0)
                 avg_prec = np.mean([
                     v["precision"] for v in r.get("per_class", {}).values()
                 ]) if r.get("per_class") else 0
-                print(f"  {f'{task} / -{held}':<35} {rej:.3f}        {avg_prec:.3f}")
+                print(f"  {f'{task} / -{held}':<35} {T:>6.3f} {rej:>9.3f} {avg_prec:>10.3f}")
 
     print(f"\n{sep}")
     print(f"  Full JSON results in data/results/")
@@ -285,12 +396,15 @@ def main(args: argparse.Namespace) -> None:
     (RESULTS_DIR / "closed_world").mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / "open_world").mkdir(parents=True, exist_ok=True)
 
-    # C1 note: what's measured is topology-TYPE classification (star/chain/mesh),
-    # not edge reconstruction. --ablate-structural zeroes all 17 per-system scalar
-    # features (indices 105-121 in 192-dim vector) — counts, volumes, timing
-    # spreads, burst rates, traffic-distribution scalars.
-    # That is the honest non-tautological test.
-    tasks = ["workflow", "topology", "role"]
+    # Tasks:
+    #  - workflow: 4-class (research/code/data/support) — the core fingerprinting claim
+    #  - role:     4-class (orchestrator/executor/retriever/validator) — C2
+    #  - parallelism: 2-class (sequential vs parallel) — honest C1 replacement
+    #    chain → sequential; star/mesh → parallel. This is a genuine timing signal
+    #    (chain imposes serial latency; parallel fan-out compresses it).
+    #  - topology: 3-class (star/chain/mesh) — kept for reference only; trivially
+    #    separable by routing config, not a subtle side-channel.
+    tasks = ["workflow", "role", "parallelism", "topology"]
 
     closed: dict = {}
     open_: dict = {}
