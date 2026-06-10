@@ -24,7 +24,13 @@ scipy>=1.13.0
 scikit-learn>=1.4.0
 joblib>=1.3.0
 
-# ── ML – Transformer main model ──────────────────────────────────────────────
+# ── ML – Gradient-Boosted Trees (second baseline) ────────────────────────────
+# GBTClassifier uses sklearn HistGradientBoostingClassifier (no extra install).
+# XGBoost is listed here for reference but segfaults on macOS ARM64 M3 inside
+# sklearn Pipeline (OpenMP thread-pool conflict in XGBoost 3.x).
+# xgboost>=2.0.0   # kept as optional; use only on Linux/x86 testbeds
+
+# ── ML – Transformer / CNN main models ───────────────────────────────────────
 torch>=2.2.0           # CPU/Metal; no CUDA required
 # transformers is optional; we implement a lightweight Transformer from scratch
 # to avoid the heavyweight HuggingFace dependency. Uncomment if needed:

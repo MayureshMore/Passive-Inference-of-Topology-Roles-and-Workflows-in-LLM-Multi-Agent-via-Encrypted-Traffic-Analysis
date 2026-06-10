@@ -6,6 +6,7 @@ packet capture for ground-truth labeling.
 from __future__ import annotations
 
 import enum
+import random
 import time
 import uuid
 from pathlib import Path
@@ -58,5 +59,7 @@ class BaseWorkflow:
     def generate_prompt(self) -> str:
         raise NotImplementedError
 
-    def sample_prompts(self, n: int = 10) -> list[str]:
+    def sample_prompts(self, n: int = 10, seed: int | None = None) -> list[str]:
+        if seed is not None:
+            random.seed(seed)
         return [self.generate_prompt() for _ in range(n)]

@@ -73,16 +73,33 @@ pip install -r requirements.txt
 # Phase 0 PoC (two agents, local loopback or two hosts)
 python scripts/run_poc.py --mode local
 
-# Collect traces (requires running agents + tcpdump permissions)
+# Collect traces — preferred: run_pilot collects all topology×workflow pairs
+sudo venv/bin/python scripts/run_pilot.py --n 15 --out data/raw 2>&1 | tee logs/pilot.log
+
+# Or per-(workflow, topology) pair via collect_traces.py (agents must be pre-started)
 python scripts/collect_traces.py --workflow research_retrieval --topology star --n 50
 
-# Train models
-python scripts/train_models.py --task roles --model rf
-python scripts/train_models.py --task workflow --model transformer
+# Extract features (use --scapy if tshark is not installed)
+python scripts/extract_features.py --raw data/raw --out data/processed --scapy
 
-# Evaluate
-python scripts/evaluate.py --mode closed_world
-python scripts/evaluate.py --mode open_world
+# Install deps (includes xgboost for GBT)
+pip install -r requirements.txt
+
+# Train models — --model choices: rf | gbt | cnn | transformer | all
+python scripts/train_models.py --task workflow --model rf
+python scripts/train_models.py --task workflow --model gbt
+python scripts/train_models.py --task workflow --model cnn  --epochs 40
+
+# Evaluate (ablations run automatically in --mode all)
+# --rf-only         : RF baseline only (fast)
+# --skip-cnn        : RF + GBT, skip CNN (for CPU-only runs)
+# (no extra flags)  : RF + GBT + CNN + Transformer
+python scripts/evaluate.py --mode all --rf-only
+python scripts/evaluate.py --mode all                 # full suite (RF+GBT+CNN)
+
+# ── 600-trace collection (50 per workflow×topology pair) ─────────────────
+# 50 × 4 workflows × 3 topologies = 600 traces
+sudo venv/bin/python scripts/run_pilot.py --n 50 --out data/raw 2>&1 | tee logs/pilot_600.log
 ```
 
 ## Data directory (gitignored)

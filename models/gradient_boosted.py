@@ -1,9 +1,17 @@
 """
-Random Forest baseline classifier.
+Gradient-Boosted Trees classifier (scikit-learn HistGradientBoosting backend).
 
-Operates on flat feature vectors (per-flow mean + per-system stats).
-Used to establish how much signal classic engineered features capture
-before applying the Transformer model.
+Same interface as RFClassifier so it can be swapped in anywhere RF is used.
+HistGradientBoostingClassifier uses histogram-based binning (LightGBM-style)
+and outperforms RandomForest on small-n tabular features (180–600 traces)
+because it corrects its own errors sequentially rather than averaging
+independent trees.  It also handles class imbalance natively via class_weight.
+
+Why HistGradientBoosting over XGBoost: XGBoost 3.x has a runtime segfault
+on macOS ARM64 (M3) when called inside a sklearn Pipeline — an OpenMP
+thread-pool conflict that persists even after libomp installation.
+HistGradientBoosting is pure sklearn, already installed, and stable on all
+platforms.  Accuracy is comparable on structured feature vectors.
 
 Supports three classification tasks:
   - "workflow"  : predict workflow class (C3)
@@ -19,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import (
     accuracy_score, f1_score, precision_score, recall_score, confusion_matrix,
 )
@@ -30,18 +38,25 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 logger = logging.getLogger(__name__)
 
 
-class RFClassifier:
+class GBTClassifier:
     """
-    Thin wrapper around sklearn RandomForest that handles label encoding,
-    feature scaling, cross-validation, and serialization.
+    Thin wrapper around HistGradientBoostingClassifier that handles label
+    encoding, cross-validation, and serialization — mirroring the
+    RFClassifier API exactly.
+
+    Note: HistGradientBoosting normalises features internally via binning,
+    so StandardScaler is a no-op here.  It is kept in the Pipeline to
+    make the API identical to RFClassifier (where scaling matters for RF).
     """
 
     def __init__(
         self,
         task: str = "workflow",
-        n_estimators: int = 300,
+        max_iter: int = 400,
         max_depth: int | None = None,
-        n_jobs: int = -1,
+        learning_rate: float = 0.05,
+        min_samples_leaf: int = 20,
+        l2_regularization: float = 0.1,
         random_state: int = 42,
     ) -> None:
         self.task = task
@@ -50,25 +65,34 @@ class RFClassifier:
             [
                 ("scaler", StandardScaler()),
                 (
-                    "rf",
-                    RandomForestClassifier(
-                        n_estimators=n_estimators,
+                    "gbt",
+                    HistGradientBoostingClassifier(
+                        max_iter=max_iter,
                         max_depth=max_depth,
-                        n_jobs=n_jobs,
-                        random_state=random_state,
+                        learning_rate=learning_rate,
+                        min_samples_leaf=min_samples_leaf,
+                        l2_regularization=l2_regularization,
                         class_weight="balanced",
+                        random_state=random_state,
                     ),
                 ),
             ]
         )
         self._is_fitted = False
 
-    def fit(self, X: np.ndarray, y: list[str]) -> "RFClassifier":
+    def fit(self, X: np.ndarray, y: list[str]) -> "GBTClassifier":
         y_enc = self.label_encoder.fit_transform(y)
         self.pipeline.fit(X, y_enc)
         self._is_fitted = True
+        # Cache permutation importance so feature_importances() works without
+        # storing X (HistGBT has no built-in feature_importances_ attribute).
+        from sklearn.inspection import permutation_importance
+        pi = permutation_importance(
+            self.pipeline, X, y_enc, n_repeats=5, random_state=42, n_jobs=-1,
+        )
+        self._perm_importances = pi.importances_mean
         logger.info(
-            "RF [%s] fitted on %d samples, %d classes",
+            "GBT [%s] fitted on %d samples, %d classes",
             self.task, len(y), len(self.label_encoder.classes_),
         )
         return self
@@ -89,9 +113,7 @@ class RFClassifier:
     ) -> dict[str, Any]:
         """
         Stratified k-fold CV with per-fold confusion matrix accumulation.
-        Returns aggregate metric means/stds AND a summed confusion matrix
-        (confusion_matrix key) so callers can see which class pairs confuse
-        the model without a separate prediction pass.
+        Identical contract to RFClassifier.cross_validate.
         """
         self.label_encoder.fit(sorted(set(y)))
         class_names = list(self.label_encoder.classes_)
@@ -131,25 +153,29 @@ class RFClassifier:
                 "matrix": cm_sum.tolist(),
             },
         }
-        logger.info("CV results [%s]: %s", self.task, {k: v for k, v in summary.items() if k != "confusion_matrix"})
+        logger.info("GBT CV [%s]: %s", self.task, {k: v for k, v in summary.items() if k != "confusion_matrix"})
         return summary
 
     def feature_importances(self, feature_names: list[str] | None = None) -> dict[str, float]:
-        rf = self.pipeline.named_steps["rf"]
-        importances = rf.feature_importances_
+        importances = getattr(self, "_perm_importances", None)
+        if importances is None:
+            return {}
         if feature_names and len(feature_names) == len(importances):
-            return dict(sorted(zip(feature_names, importances), key=lambda x: -x[1]))
+            return dict(sorted(zip(feature_names, importances.tolist()), key=lambda x: -x[1]))
         return {str(i): float(v) for i, v in enumerate(importances)}
 
     def save(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "wb") as f:
-            pickle.dump({"pipeline": self.pipeline, "label_encoder": self.label_encoder, "task": self.task}, f)
-        logger.info("RF model saved to %s", path)
+            pickle.dump(
+                {"pipeline": self.pipeline, "label_encoder": self.label_encoder, "task": self.task},
+                f,
+            )
+        logger.info("GBT model saved to %s", path)
 
     @classmethod
-    def load(cls, path: Path) -> "RFClassifier":
+    def load(cls, path: Path) -> "GBTClassifier":
         with open(path, "rb") as f:
             state = pickle.load(f)
         obj = cls(task=state["task"])

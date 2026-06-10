@@ -79,9 +79,14 @@ class ClosedWorldEval:
             groups=self.groups,
         )
 
-        # Also train on full data to get feature importances
+        # Also train on full data to get feature importances with human-readable names
         clf.fit(self.features, self.labels)
-        importances = clf.feature_importances()
+        try:
+            from features.names import FLAT_FEATURE_NAMES, ROLE_FEATURE_NAMES
+            feat_names = ROLE_FEATURE_NAMES() if self.task == "role" else FLAT_FEATURE_NAMES()
+        except Exception:
+            feat_names = None
+        importances = clf.feature_importances(feature_names=feat_names)
 
         result = {
             "model": "random_forest",
@@ -97,6 +102,80 @@ class ClosedWorldEval:
             )
 
         logger.info("Closed-world RF [%s]: %s", self.task, cv_results)
+        return result
+
+    def run_gbt(self, out_dir: Path | None = None) -> dict[str, Any]:
+        """Run GBT (XGBoost) baseline with stratified (group-safe) CV."""
+        from models.gradient_boosted import GBTClassifier
+
+        clf = GBTClassifier(task=self.task)
+        cv_results = clf.cross_validate(
+            self.features, self.labels,
+            n_splits=self.n_splits,
+            groups=self.groups,
+        )
+
+        clf.fit(self.features, self.labels)
+        try:
+            from features.names import FLAT_FEATURE_NAMES, ROLE_FEATURE_NAMES
+            feat_names = ROLE_FEATURE_NAMES() if self.task == "role" else FLAT_FEATURE_NAMES()
+        except Exception:
+            feat_names = None
+        importances = clf.feature_importances(feature_names=feat_names)
+
+        result = {
+            "model": "gradient_boosted",
+            "task": self.task,
+            "cv": cv_results,
+            "top_features": list(importances.items())[:20],
+        }
+
+        if out_dir:
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            (Path(out_dir) / f"closed_world_gbt_{self.task}.json").write_text(
+                json.dumps(result, indent=2)
+            )
+
+        logger.info("Closed-world GBT [%s]: %s", self.task, cv_results)
+        return result
+
+    def run_cnn(
+        self,
+        burst_sequences: list[np.ndarray],
+        gap_sequences: list[np.ndarray],
+        out_dir: Path | None = None,
+        n_epochs: int = 40,
+        batch_size: int = 16,
+        lr: float = 1e-3,
+    ) -> dict[str, Any]:
+        """Run 1-D CNN on burst sequences with stratified CV."""
+        from models.cnn1d import cnn_cross_validate
+
+        cv_results = cnn_cross_validate(
+            burst_seqs=burst_sequences,
+            gap_seqs=gap_sequences,
+            y=self.labels,
+            task=self.task,
+            n_splits=self.n_splits,
+            groups=self.groups,
+            n_epochs=n_epochs,
+            batch_size=batch_size,
+            lr=lr,
+        )
+
+        result = {
+            "model": "cnn1d",
+            "task": self.task,
+            "cv": cv_results,
+        }
+
+        if out_dir:
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            (Path(out_dir) / f"closed_world_cnn_{self.task}.json").write_text(
+                json.dumps(result, indent=2)
+            )
+
+        logger.info("Closed-world CNN1D [%s]: %s", self.task, cv_results)
         return result
 
     def run_transformer(

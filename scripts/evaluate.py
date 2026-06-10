@@ -51,8 +51,8 @@ def load_dataset(
     X_list, y_list, burst_list, gap_list, group_list = [], [], [], [], []
     for npz_path in sorted(PROCESSED_DIR.glob("*.npz")):
         run_id = npz_path.stem
-        # Per-flow role NPZs have "__role__" in the name (30-dim flat vector).
-        # Per-trace NPZs do not (103-dim flat vector).
+        # Per-flow role NPZs have "__role__" in the name (35-dim flat vector).
+        # Per-trace NPZs do not (192-dim flat vector).
         # Keep them strictly separate to avoid shape mismatches.
         is_role_sample = "__role__" in run_id
         if task == "role" and not is_role_sample:
@@ -66,7 +66,15 @@ def load_dataset(
         if label is None:
             continue
         d = np.load(npz_path, allow_pickle=False)
-        X_list.append(d["flat"])
+        vec = d["flat"]
+        expected_dim = 35 if is_role_sample else 192
+        if vec.shape[0] != expected_dim:
+            logger.warning(
+                "Skipping %s: expected %d-dim flat vector, got %d",
+                run_id, expected_dim, vec.shape[0],
+            )
+            continue
+        X_list.append(vec)
         y_list.append(label)
         burst_list.append(d["burst_sequence"])
         gap_list.append(d["gap_sequence"])
@@ -95,9 +103,22 @@ def load_dataset(
 # traffic-distribution scalars (heaviest_flow_frac, flow_bytes_cv, etc.).
 _ALL_SYSTEM_SCALAR_INDICES = list(range(105, 122))  # n_flows…mean_flow_response_ratio
 
+# Parallelism concurrency-counter ablation indices (within the 192-dim vector).
+# These three per-system scalars directly ENCODE concurrency as a count/spread —
+# they are structural (derived from flow timing) rather than a subtle side-channel:
+#   flow_start_spread (112): max(start_ts) − min(start_ts) across flows
+#   flow_end_spread   (113): max(end_ts)   − min(end_ts)   across flows
+#   max_concurrent    (114): peak number of simultaneously open TCP connections
+# If parallelism accuracy remains high after zeroing these three, the signal is
+# in per-packet timing/size features (a genuine side-channel).  If accuracy
+# collapses, the model was simply counting concurrent flows — a structural tell.
+_PARALLELISM_CONCURRENCY_INDICES = [112, 113, 114]
+
 
 def run_closed_world(tasks: list[str], ablate_structural: bool = False,
-                     rf_only: bool = False) -> dict:
+                     ablate_parallelism: bool = False,
+                     rf_only: bool = False,
+                     skip_cnn: bool = False) -> dict:
     from evaluation.closed_world import ClosedWorldEval
 
     all_results = {}
@@ -115,6 +136,14 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
             X[:, _ALL_SYSTEM_SCALAR_INDICES] = 0.0
             logger.info("Ablation: zeroed ALL 17 per-system scalar features (indices 105–121)")
 
+        if ablate_parallelism and task == "parallelism":
+            X = X.copy()
+            X[:, _PARALLELISM_CONCURRENCY_INDICES] = 0.0
+            logger.info(
+                "Ablation: zeroed concurrency-counter features "
+                "(flow_start_spread=112, flow_end_spread=113, max_concurrent=114)"
+            )
+
         n_splits = min(5, _min_class_count(y))
         if n_splits < 2:
             logger.warning("task=%s: fewer than 2 samples per class — skipping", task)
@@ -127,24 +156,53 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         rf_result = evaluator.run_rf(out_dir=out_dir)
         all_results[f"{task}/rf"] = rf_result
 
-        # Transformer: uninformative at < ~1,000 traces; suppress by default.
-        # Re-enable once you have 1,000–2,000+ traces per class.
         if rf_only:
-            logger.info("Skipping Transformer [%s] (--rf-only; need 1k+ traces first)", task)
-        elif _min_class_count(y) >= n_splits * 2:
-            logger.info("--- Closed-world Transformer [%s] ---", task)
-            try:
-                tr_result = evaluator.run_transformer(
-                    burst_sequences=burst_seqs,
-                    gap_sequences=gap_seqs,
-                    out_dir=out_dir,
-                    n_epochs=20,
-                )
-                all_results[f"{task}/transformer"] = tr_result
-            except Exception as exc:
-                logger.warning("Transformer failed for task=%s: %s", task, exc)
+            logger.info("Skipping GBT/CNN/Transformer (--rf-only)", task)
         else:
-            logger.info("Skipping Transformer [%s] (too few samples per fold)", task)
+            # ── GBT baseline ────────────────────────────────────────────────
+            logger.info("--- Closed-world GBT [%s] ---", task)
+            try:
+                gbt_result = evaluator.run_gbt(out_dir=out_dir)
+                all_results[f"{task}/gbt"] = gbt_result
+            except Exception as exc:
+                logger.warning("GBT failed for task=%s: %s", task, exc)
+
+            # ── 1-D CNN (burst sequences) ────────────────────────────────────
+            # Better than Transformer at 600 traces; suppress only when
+            # explicitly asked (--skip-cnn) or when too few samples per fold.
+            if skip_cnn:
+                logger.info("Skipping CNN1D [%s] (--skip-cnn)", task)
+            elif _min_class_count(y) >= n_splits * 2:
+                logger.info("--- Closed-world CNN1D [%s] ---", task)
+                try:
+                    cnn_result = evaluator.run_cnn(
+                        burst_sequences=burst_seqs,
+                        gap_sequences=gap_seqs,
+                        out_dir=out_dir,
+                        n_epochs=40,
+                    )
+                    all_results[f"{task}/cnn"] = cnn_result
+                except Exception as exc:
+                    logger.warning("CNN1D failed for task=%s: %s", task, exc)
+            else:
+                logger.info("Skipping CNN1D [%s] (too few samples per fold)", task)
+
+            # ── Transformer: uninformative at < ~1,000 traces ───────────────
+            # Re-enable once you have 1,000–2,000+ traces per class.
+            if _min_class_count(y) >= n_splits * 2:
+                logger.info("--- Closed-world Transformer [%s] ---", task)
+                try:
+                    tr_result = evaluator.run_transformer(
+                        burst_sequences=burst_seqs,
+                        gap_sequences=gap_seqs,
+                        out_dir=out_dir,
+                        n_epochs=20,
+                    )
+                    all_results[f"{task}/transformer"] = tr_result
+                except Exception as exc:
+                    logger.warning("Transformer failed for task=%s: %s", task, exc)
+            else:
+                logger.info("Skipping Transformer [%s] (too few samples per fold)", task)
 
     return all_results
 
@@ -153,35 +211,25 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
 
 def _tune_rejection_threshold(
     cal_clf,
-    label_encoder,
     X_known_val: np.ndarray,
-    y_known_val: list[str],
-    X_unknown_val: np.ndarray,
+    target_known_retention: float = 0.95,
 ) -> float:
     """
-    Sweep thresholds on a (known-val + unknown-val) split.
-    Maximise harmonic mean of known-class accuracy and unknown rejection rate.
-    Prevents both degenerate extremes: reject-all (T→1) and accept-all (T→0).
+    Set rejection threshold from known-class validation data ONLY.
+
+    Finds the max-confidence percentile that retains `target_known_retention`
+    of known-class validation traffic (default 95%).  Concretely:
+      T = 5th percentile of known-val max-confidence scores.
+
+    Zero access to the held-out unknown class.  Using unknown samples to pick T
+    (e.g. maximising HM(known_acc, unk_rejection)) leaks the test unknown class
+    into threshold selection — a reviewer catches this immediately and it inflates
+    every rejection number.  The honest criterion depends only on known traffic.
     """
     proba_kn = cal_clf.predict_proba(X_known_val)
-    proba_unk = cal_clf.predict_proba(X_unknown_val)
     max_p_kn = proba_kn.max(axis=1)
-    max_p_unk = proba_unk.max(axis=1)
-    pred_kn_enc = proba_kn.argmax(axis=1)
-    y_kn_enc = label_encoder.transform(y_known_val)
-
-    best_T, best_score = 0.5, -1.0
-    for T in np.linspace(0.05, 0.95, 37):
-        # Known accuracy: correctly predicted AND not rejected
-        accepted = max_p_kn >= T
-        known_acc = float(((pred_kn_enc == y_kn_enc) & accepted).sum()) / max(len(y_known_val), 1)
-        # Unknown rejection rate: fraction of unknown samples correctly rejected
-        unk_rej = float((max_p_unk < T).sum()) / max(len(X_unknown_val), 1)
-        # Harmonic mean of both — balanced objective
-        score = (2 * known_acc * unk_rej / (known_acc + unk_rej)) if (known_acc + unk_rej) > 0 else 0.0
-        if score > best_score:
-            best_score, best_T = score, float(T)
-    return best_T
+    reject_pct = (1.0 - target_known_retention) * 100.0   # e.g. 5.0
+    return float(np.percentile(max_p_kn, reject_pct))
 
 
 class _CalibratedModel:
@@ -206,17 +254,17 @@ def run_open_world(tasks: list[str]) -> dict:
     Leave-one-class-out open-world evaluation with calibrated rejection.
 
     For each held-out class C:
-      1. Split known-class data 75 / 25 into train and val/test.
-      2. Fit RF on train; calibrate probabilities with isotonic regression
-         (CalibratedClassifierCV eliminates RF overconfidence).
-      3. Tune rejection threshold on (val-known + first half of unknown)
-         to maximise HM(known_acc, unknown_rejection_rate).
-      4. Evaluate on (val-known + second half of unknown) with tuned threshold.
+      1. Split known-class data 75/25 into train and val/test.
+      2. Fit RF on train; calibrate with isotonic regression (eliminates
+         RF overconfidence).
+      3. Tune rejection threshold on val-known ONLY — 5th percentile of
+         max-confidence scores, retaining ~95% of known traffic.
+         Zero access to held-out unknown class during tuning.
+      4. Evaluate on (val-known + ALL unknown) with the honest threshold.
 
-    Fixes two prior bugs:
-      - train == test (known test set was the same as training set)
-      - fixed threshold 0.6 on uncalibrated probabilities (RF overconfidence
-        meant almost nothing was ever rejected)
+    The prior protocol (tuning on first half of unknown, eval on second half)
+    leaks the test class into threshold selection, inflating rejection numbers.
+    This version uses no unknown samples during threshold selection.
     """
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.model_selection import StratifiedShuffleSplit
@@ -259,45 +307,42 @@ def run_open_world(tasks: list[str]) -> dict:
                 X_kn_val = X_known[te_idx]
                 y_kn_val = [y_known[i] for i in te_idx]
 
-            # ── split unknown: half for threshold tuning, half for eval ─────
-            mid = max(1, len(X_unknown) // 2)
-            X_unk_tune = X_unknown[:mid]
-            X_unk_eval = X_unknown[mid:]
-
             # ── fit RF ──────────────────────────────────────────────────────
             clf = RFClassifier(task=task)
             clf.fit(X_kn_train, y_kn_train)
 
-            # ── calibrate probabilities with isotonic regression ────────────
-            # cv='prefit' maps the already-fitted pipeline's raw outputs
-            # through a held-out isotonic regression, producing calibrated
-            # probabilities that are not pathologically overconfident.
+            # ── calibrate probabilities ─────────────────────────────────────
+            # Isotonic regression needs ~40+ samples per class to avoid
+            # overfitting (produces extreme 0/1 probs at small n, which makes
+            # the 5th-pct threshold degenerate at T≈1).  Use Platt sigmoid
+            # for small datasets; isotonic only when each class has ≥40 train
+            # samples — a standard rule of thumb from Niculescu-Mizil & Caruana.
             y_kn_train_enc = clf.label_encoder.transform(y_kn_train)
-            cal_cv = min(3, _min_class_count(y_kn_train))
+            min_per_class = _min_class_count(y_kn_train)
+            cal_method = "isotonic" if min_per_class >= 40 else "sigmoid"
+            cal_cv = min(3, min_per_class)
             if cal_cv >= 2:
                 cal_pipeline = CalibratedClassifierCV(
-                    clf.pipeline, cv=cal_cv, method="isotonic"
+                    clf.pipeline, cv=cal_cv, method=cal_method,
                 )
                 cal_pipeline.fit(X_kn_train, y_kn_train_enc)
+                logger.info("  calibration: method=%s  min_per_class=%d", cal_method, min_per_class)
             else:
-                # Too few samples to calibrate — fall back to uncalibrated
                 logger.warning("task=%s held_out=%s: too few samples for calibration, using raw RF", task, held_out)
                 cal_pipeline = clf.pipeline
-                cal_pipeline  # already fitted
 
-            # ── tune threshold on val-known + first half of unknown ─────────
-            best_T = _tune_rejection_threshold(
-                cal_pipeline, clf.label_encoder,
-                X_kn_val, y_kn_val, X_unk_tune,
-            )
-            logger.info("  open-world  task=%-10s  held_out=%-20s  tuned_T=%.3f", task, held_out, best_T)
+            # ── tune threshold on known-val ONLY (no unknown samples) ───────
+            # 5th-percentile of max-confidence on known val → retains ~95% of
+            # known traffic.  Unknown class never seen during tuning.
+            best_T = _tune_rejection_threshold(cal_pipeline, X_kn_val)
+            logger.info("  open-world  task=%-10s  held_out=%-20s  T(5th-pct)=%.3f", task, held_out, best_T)
 
-            # ── evaluate with tuned threshold on val + second half unknown ──
+            # ── evaluate on val-known + ALL unknown (no holdout split) ──────
             cal_model = _CalibratedModel(cal_pipeline, clf.label_encoder)
             evaluator = OpenWorldEval(
                 known_features=X_kn_val,
                 known_labels=y_kn_val,
-                unknown_features=X_unk_eval,
+                unknown_features=X_unknown,
                 task=task,
                 threshold=best_T,
             )
@@ -321,7 +366,7 @@ def print_results(closed: dict, open_: dict) -> None:
         print(f"\n{sep}")
         print("  CLOSED-WORLD RESULTS")
         print(sep)
-        print(f"  {'Task / Model':<34} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
+        print(f"  {'Task / Model':<38} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
         print(f"  {'-'*60}")
 
         for key, res in closed.items():
@@ -347,34 +392,46 @@ def print_results(closed: dict, open_: dict) -> None:
             above = "✓" if acc > random_baseline else "✗"
             label = f"{task} / {model}"
             if ablated:
-                label += "  [no structural scalars]"
-            print(f"  {label:<34} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
+                # Show what was zeroed for each ablated task
+                if "topology" in task:
+                    label += "  [-system scalars]"
+                elif "parallelism" in task:
+                    label += "  [-concurrency]"
+                else:
+                    label += "  [ablated]"
+            print(f"  {label:<38} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
 
-        # Topology note: trivially separable because routing config determines
-        # the entire traffic graph; the ablation (zero drop) confirms per-system
-        # scalar features are unused, not that signal is subtle.
         if any("topology" in k for k in closed):
             print(f"\n  NOTE topology: trivially separable by routing structure —")
-            print(f"  not a subtle side-channel. Ablation zero-drop confirms structural")
-            print(f"  features are redundant (pf_top1/pf_top2 encode the same info).")
-            print(f"  Use 'parallelism' task (sequential vs parallel) for honest C1 claim.")
+            print(f"  not a subtle side-channel. topology/rf__ablated confirms system")
+            print(f"  scalars are redundant; pf_top1/pf_top2 encode the same structure.")
+            print(f"  Use 'parallelism' for the honest C1 claim.")
+        if any("parallelism" in k and "ablated" in k for k in closed):
+            print(f"\n  NOTE parallelism: parallelism/rf__ablated zeros max_concurrent,")
+            print(f"  flow_start/end_spread. If accuracy holds, the signal is in")
+            print(f"  per-packet timing/size, not just concurrency counting.")
 
     if open_:
         print(f"\n{sep}")
-        print("  OPEN-WORLD RESULTS  (leave-one-class-out, calibrated RF, tuned threshold)")
+        print("  OPEN-WORLD RESULTS  (LOO within-distribution, calibrated RF)")
+        print("  Protocol: threshold = 5th-pct of known-val max-confidence (~95% retention).")
+        print("  Zero unknown samples used during threshold selection.")
+        print("  NOTE: 'unknown' = held-out A2A class, NOT real background traffic.")
         print(sep)
-        print(f"  {'Task / Held-out':<35} {'T':>6} {'Reject%':>9} {'Avg Prec':>10}")
-        print(f"  {'-'*62}")
+        print(f"  {'Task / Held-out':<35} {'T':>6} {'Unk-Rej%':>9} {'Kn-FPR%':>9} {'Avg Prec':>10}")
+        print(f"  {'-'*71}")
 
         for task, runs in open_.items():
             for r in runs:
-                held = r.get("held_out_class", "?")
-                T    = r.get("tuned_threshold", r.get("threshold", 0))
-                rej  = r.get("unknown_rejection_rate", 0)
+                held    = r.get("held_out_class", "?")
+                T       = r.get("tuned_threshold", r.get("threshold", 0))
+                rej     = r.get("unknown_rejection_rate", 0)
+                kn_fpr  = r.get("known_fpr", float("nan"))
                 avg_prec = np.mean([
                     v["precision"] for v in r.get("per_class", {}).values()
                 ]) if r.get("per_class") else 0
-                print(f"  {f'{task} / -{held}':<35} {T:>6.3f} {rej:>9.3f} {avg_prec:>10.3f}")
+                fpr_s = f"{kn_fpr:.3f}" if not (isinstance(kn_fpr, float) and kn_fpr != kn_fpr) else "  N/A"
+                print(f"  {f'{task} / -{held}':<35} {T:>6.3f} {rej:>9.3f} {fpr_s:>9} {avg_prec:>10.3f}")
 
     print(f"\n{sep}")
     print(f"  Full JSON results in data/results/")
@@ -410,17 +467,26 @@ def main(args: argparse.Namespace) -> None:
     open_: dict = {}
 
     if args.mode in ("closed_world", "all"):
-        closed = run_closed_world(tasks, ablate_structural=False, rf_only=args.rf_only)
+        closed = run_closed_world(tasks, ablate_structural=False,
+                                  ablate_parallelism=False, rf_only=args.rf_only,
+                                  skip_cnn=args.skip_cnn)
 
     if args.mode in ("open_world", "all"):
         open_ = run_open_world(tasks)
 
-    # C1 ablation: re-run topology with ALL 13 per-system scalar features zeroed.
-    # This is the honest non-tautological test of whether timing/size signal survives.
-    if args.ablate_structural and args.mode in ("closed_world", "all"):
-        logger.info("=== C1 ABLATION: zeroing all 13 per-system scalar features (30–42) ===")
-        ablation = run_closed_world(["topology"], ablate_structural=True, rf_only=args.rf_only)
-        for k, v in ablation.items():
+    # Ablations always run in --mode all / closed_world.  RF only for ablations
+    # (GBT/CNN on ablated data is redundant for the paper's ablation table).
+    if args.mode in ("closed_world", "all"):
+        logger.info("=== C1 TOPOLOGY ABLATION: zeroing per-system scalars (105–121) ===")
+        topo_abl = run_closed_world(["topology"], ablate_structural=True,
+                                    ablate_parallelism=False, rf_only=True)
+        for k, v in topo_abl.items():
+            closed[f"{k}__ablated"] = v
+
+        logger.info("=== C1 PARALLELISM ABLATION: zeroing concurrency counters (112–114) ===")
+        par_abl = run_closed_world(["parallelism"], ablate_structural=False,
+                                   ablate_parallelism=True, rf_only=True)
+        for k, v in par_abl.items():
             closed[f"{k}__ablated"] = v
 
     print_results(closed, open_)
@@ -448,8 +514,9 @@ if __name__ == "__main__":
     p.add_argument("--mode", choices=["closed_world", "open_world", "all"],
                    default="all")
     p.add_argument("--ablate-structural", action="store_true",
-                   help="Zero all 17 per-system scalar features (indices 105–121 in 192-dim vector) "
-                        "for topology task — the honest test for non-tautological signal")
+                   help="(deprecated — ablations now run automatically in --mode all/closed_world)")
     p.add_argument("--rf-only", action="store_true",
-                   help="Skip Transformer (uninformative at < ~1,000 traces per class)")
+                   help="Run RF only — skip GBT, CNN, Transformer")
+    p.add_argument("--skip-cnn", action="store_true",
+                   help="Skip CNN1D (useful on CPU-only machines — CNN is slow without MPS/CUDA)")
     main(p.parse_args())

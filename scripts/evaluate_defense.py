@@ -88,25 +88,6 @@ TIMING_FEATURE_INDICES += [111, 112, 113]           # per_system: duration, flow
 ALL_INDICES = list(range(192))
 
 
-def load_dataset(task: str):
-    label_file = PROCESSED_DIR / "labels.json"
-    labels_map = json.loads(label_file.read_text())
-    X_list, y_list = [], []
-    for npz_path in sorted(PROCESSED_DIR.glob("*.npz")):
-        run_id = npz_path.stem
-        if run_id not in labels_map:
-            continue
-        label = labels_map[run_id].get(task)
-        if label is None:
-            continue
-        d = np.load(npz_path, allow_pickle=False)
-        X_list.append(d["flat"])
-        y_list.append(label)
-    if not X_list:
-        raise ValueError(f"No samples for task={task}")
-    return np.stack(X_list), y_list
-
-
 # Per-flow (role, 35-dim) feature layout:
 #   [0-11] packet counts + size stats, [12-14] timing, [15-19] burst stats,
 #   [20-29] cumul_bytes, [30-34] asymmetry/sse-proxy

@@ -103,7 +103,7 @@ class OpenWorldEval:
                 "tp": tp, "fp": fp, "fn": fn,
             }
 
-        # Unknown rejection rate
+        # Unknown rejection rate: fraction of unknown samples correctly rejected
         n_unknown_correctly_rejected = sum(
             1 for t, p in zip(all_true, preds)
             if t == UNKNOWN_LABEL and p == UNKNOWN_LABEL
@@ -111,6 +111,16 @@ class OpenWorldEval:
         result["unknown_rejection_rate"] = (
             n_unknown_correctly_rejected / max(len(self.unknown_features), 1)
         )
+
+        # Known-class false positive rate: fraction of KNOWN samples incorrectly
+        # abstained on (rejected as unknown).  By design the threshold retains
+        # ~95% of known traffic, so this should be ~5%; deviations indicate the
+        # calibration is not well-fit to this class distribution.
+        n_known_rejected = sum(
+            1 for t, p in zip(all_true, preds)
+            if t != UNKNOWN_LABEL and p == UNKNOWN_LABEL
+        )
+        result["known_fpr"] = n_known_rejected / max(len(self.known_labels), 1)
 
         # Precision-recall curves at multiple thresholds
         pr_curves: dict[str, list] = {}

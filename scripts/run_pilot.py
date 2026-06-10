@@ -127,6 +127,14 @@ def _agent_configs(topology: str, model: str,
         }
 
     if topology == "mesh":
+        # Subagent configs are identical to chain — executor still forwards to
+        # retriever, retriever to validator, validator has no downstream.
+        # The mesh distinction is entirely in the ORCHESTRATOR's fan-out:
+        # orchestrator sends to [executor, retriever] simultaneously (see
+        # _orchestrator()), so retriever receives TWO independent flows —
+        # one direct from orchestrator AND one forwarded from executor.
+        # This extra flow at port 8002 is what the feature extractor captures
+        # as the mesh signal (higher n_flows, flow_start_spread, pf_top2 active).
         return {
             "executor": AgentConfig(
                 role=AgentRole.EXECUTOR, port=PORTS["executor"],
@@ -248,7 +256,10 @@ async def run_topology(
     for wf_name in workflows:
         wf_class = WorkflowClass(wf_name)
         wf_instance = WORKFLOW_REGISTRY[wf_class]()
-        prompts = wf_instance.sample_prompts(n=n)
+        _TOPOS = ["star", "chain", "mesh"]
+        _WFS   = [wf.value for wf in WorkflowClass]
+        _seed  = _TOPOS.index(topology) * len(_WFS) + _WFS.index(wf_name) + 100
+        prompts = wf_instance.sample_prompts(n=n, seed=_seed)
 
         # Build a fresh orchestrator for each workflow run (new HTTP client)
         orch = _orchestrator(topology, model)
