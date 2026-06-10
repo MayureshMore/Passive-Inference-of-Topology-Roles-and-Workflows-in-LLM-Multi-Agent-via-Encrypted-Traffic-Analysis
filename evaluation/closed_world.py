@@ -183,9 +183,10 @@ class ClosedWorldEval:
         burst_sequences: list[np.ndarray],
         gap_sequences: list[np.ndarray],
         out_dir: Path | None = None,
-        n_epochs: int = 30,
+        n_epochs: int = 80,
         batch_size: int = 32,
         lr: float = 1e-3,
+        patience: int = 12,
     ) -> dict[str, Any]:
         """Run Transformer with stratified CV."""
         import torch
@@ -223,22 +224,50 @@ class ClosedWorldEval:
                 train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
             )
 
-            model = BurstTransformer(
-                burst_dim=train_bs[0].size(-1) if train_bs[0].ndim > 1 else 10,
-                n_classes=n_classes,
-            ).to(device)
+            burst_dim = train_bs[0].size(-1) if train_bs[0].ndim > 1 else 10
+            model = BurstTransformer(burst_dim=burst_dim, n_classes=n_classes).to(device)
             optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs)
 
+            best_val_acc = -1.0
+            best_state = None
+            no_improve = 0
+
             for epoch in range(n_epochs):
-                loss = train_one_epoch(model, train_loader, optimizer, device)
+                train_one_epoch(model, train_loader, optimizer, device)
                 scheduler.step()
 
-            # Validation inference
+                # Early stopping: evaluate on validation fold
+                model.eval()
+                preds_ep = []
+                with torch.no_grad():
+                    for bs, gs in zip(val_bs, val_gs):
+                        bs_t = bs.unsqueeze(0).to(device)
+                        gs_t = gs.unsqueeze(0).to(device) if gs.numel() > 0 else torch.zeros(1, 0).to(device)
+                        preds_ep.append(model(bs_t, gs_t).argmax(dim=-1).item())
+                val_acc = sum(p == t for p, t in zip(preds_ep, val_y_enc)) / len(val_y_enc)
+                model.train()
+
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    import copy
+                    best_state = copy.deepcopy(model.state_dict())
+                    no_improve = 0
+                else:
+                    no_improve += 1
+                    if no_improve >= patience:
+                        logger.info("Early stop at epoch %d (best val_acc=%.3f)", epoch + 1, best_val_acc)
+                        break
+
+            # Restore best weights
+            if best_state is not None:
+                model.load_state_dict(best_state)
+
+            # Validation inference with best model
             model.eval()
             val_preds: list[str] = []
             with torch.no_grad():
-                for i, (bs, gs) in enumerate(zip(val_bs, val_gs)):
+                for bs, gs in zip(val_bs, val_gs):
                     bs_t = bs.unsqueeze(0).to(device)
                     gs_t = gs.unsqueeze(0).to(device) if gs.numel() > 0 else torch.zeros(1, 0).to(device)
                     logits = model(bs_t, gs_t)
@@ -250,16 +279,26 @@ class ClosedWorldEval:
             fold_m["fold"] = fold
             fold_metrics.append(fold_m)
 
-        # Aggregate
+        # Aggregate — use the same cv.accuracy / cv.f1_macro structure as RF/GBT
+        # so summary.json can be read uniformly across all models.
+        accs = [m["accuracy"] for m in fold_metrics]
+        f1s  = [m["macro_f1"] for m in fold_metrics]
         agg: dict[str, Any] = {
             "model": "transformer",
             "task": self.task,
+            "cv": {
+                "accuracy":          {"mean": float(np.mean(accs)), "std": float(np.std(accs))},
+                "f1_macro":          {"mean": float(np.mean(f1s)),  "std": float(np.std(f1s))},
+                "precision_macro":   {"mean": float(np.mean([m.get("macro_precision", 0) for m in fold_metrics])), "std": 0.0},
+                "recall_macro":      {"mean": float(np.mean([m.get("macro_recall",    0) for m in fold_metrics])), "std": 0.0},
+            },
             "n_folds": self.n_splits,
             "folds": fold_metrics,
-            "mean_accuracy": float(np.mean([m["accuracy"] for m in fold_metrics])),
-            "std_accuracy": float(np.std([m["accuracy"] for m in fold_metrics])),
-            "mean_macro_f1": float(np.mean([m["macro_f1"] for m in fold_metrics])),
-            "std_macro_f1": float(np.std([m["macro_f1"] for m in fold_metrics])),
+            # Legacy keys kept for backward compatibility with older result readers
+            "mean_accuracy": float(np.mean(accs)),
+            "std_accuracy":  float(np.std(accs)),
+            "mean_macro_f1": float(np.mean(f1s)),
+            "std_macro_f1":  float(np.std(f1s)),
         }
 
         if out_dir:

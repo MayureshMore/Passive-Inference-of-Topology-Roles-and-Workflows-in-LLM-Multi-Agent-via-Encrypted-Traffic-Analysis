@@ -1,7 +1,11 @@
 """
 Support triage workflow — ticket classified, routed, and escalated.
-Characteristic traffic: short initial payload, rapid small responses,
-and a single escalation hop (shorter burst structure than research workflow).
+Characteristic traffic: initial ticket payload, rapid small responses,
+and a single escalation hop.
+
+Tickets are intentionally mixed: short tickets (~300-800B) and long tickets
+with attached stack traces or log excerpts (~1500-3000B).  Long tickets overlap
+with CR's small-snippet range so the classifier must use structural signals.
 """
 
 from __future__ import annotations
@@ -54,6 +58,148 @@ _TICKETS = [
     "Google Calendar integration shows events in UTC despite timezone being set to IST in account settings.",
 ]
 
+# Long tickets with attached traces/logs (~1500-3000B): overlap with CR small-snippet range
+_LONG_TICKETS = [
+    """\
+[P1 CRITICAL] Production payment service crash at 03:14 UTC — revenue blocked
+
+payments-api v2.4.1 has been down since 03:14 UTC. Queue depth at crash: 1,247 orders.
+
+Traceback (most recent call last):
+  File "/opt/app/payments/server.py", line 341, in process_payment
+    result = await self.gateway.charge(amount=payload["amount"], token=payload["card_token"])
+  File "/opt/app/payments/gateway/stripe_adapter.py", line 89, in charge
+    response = await self._client.post("/v1/charges", json=charge_data, timeout=30.0)
+  File "/opt/app/vendor/httpx/_client.py", line 1374, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+  File "/opt/app/vendor/httpx/_transports/asyncio.py", line 77, in handle_async_request
+    with request_context(request=request):
+  File "/opt/app/payments/gateway/stripe_adapter.py", line 112, in charge
+    raise GatewayTimeoutError(f"Stripe API timeout after 30s: {payload['order_id']}")
+payments.exceptions.GatewayTimeoutError: Stripe API timeout after 30s: ORD-20241127-98421
+
+The above exception was the direct cause of the following exception:
+
+  File "/opt/app/payments/worker.py", line 134, in _process
+    charged = await self.processor.process_payment(task.payload)
+  File "/opt/app/payments/server.py", line 345, in process_payment
+    raise PaymentProcessingError(f"Gateway failure for order {payload['order_id']}") from exc
+payments.exceptions.PaymentProcessingError: Gateway failure for order ORD-20241127-98421
+
+Process: 14823 | Host: payments-prod-03 | Last 50 successful payments completed before failure.""",
+
+    """\
+[P2 HIGH] DB connection pool exhausted — 34% of API requests returning 503 since 11:29 UTC
+
+Service: api-gateway v5.1.2 on prod-cluster-west
+DB: PostgreSQL 15 (RDS db.r6g.2xlarge, max_connections=200)
+First error: 2024-11-14T11:29:47Z
+
+Error log excerpt (api-gateway-prod-07, last 15 min):
+
+2024-11-14T11:29:47Z [ERROR] asyncpg.TooManyConnectionsError: sorry, too many clients already
+2024-11-14T11:29:51Z [ERROR] Connection acquire timeout 5.0s — pool=main checked_out=70/70
+2024-11-14T11:30:01Z [ERROR] asyncpg.TooManyConnectionsError: sorry, too many clients already
+2024-11-14T11:30:04Z [ERROR] Health check FAILED — DB latency=timeout (threshold=100ms)
+2024-11-14T11:30:08Z [ERROR] Connection acquire timeout 5.0s — pool=main checked_out=70/70
+2024-11-14T11:30:12Z [WARN]  Circuit breaker OPEN after 5 consecutive DB failures
+2024-11-14T11:30:15Z [ERROR] 503 Service Unavailable: GET /api/v2/reports/monthly
+2024-11-14T11:30:22Z [INFO]  Pool stats: size=50 checked_out=70 overflow=20 idle=0 invalidated=3
+2024-11-14T11:30:29Z [ERROR] Long-running query detected: query_id=7f3a1b duration=127s state=active
+2024-11-14T11:30:40Z [ERROR] Connection acquire timeout 5.0s — pool=main checked_out=70/70
+2024-11-14T11:30:47Z [WARN]  Memory usage: 87.4% (14.2GB/16.0GB) — approaching OOM threshold
+
+pg_stat_activity: 198 active connections (limit=200), 47 in state=idle_in_transaction.
+Blocking query: SELECT * FROM events WHERE... — no index, full table scan on 340M-row table.""",
+
+    """\
+[P2 HIGH] Memory leak in event-processor — OOM kills every ~4 hours since v3.7.0 deploy
+
+Service: event-processor v3.7.0 (Node.js 20.10 on k8s prod-east)
+Pattern: heap grows ~200MB/hour; OOM kill after ~4h; auto-restarts
+Regression: started with v3.7.0; v3.6.8 was stable
+
+Latest OOM: 2024-11-14T07:23:11Z
+k8s event: Container event-processor-worker OOMKilled. Limit: 2Gi. Last usage: 1.98Gi.
+
+Heap growth profile between restarts:
+  T+0h: heap_used=312MB  heap_total=450MB  external=28MB
+  T+1h: heap_used=498MB  heap_total=640MB  external=31MB
+  T+2h: heap_used=729MB  heap_total=890MB  external=34MB
+  T+3h: heap_used=1012MB heap_total=1180MB external=38MB
+  T+3.8h: OOMKilled
+
+--heapsnapshot-near-heap-limit retained-size top 5:
+  1. (closure)       823,441 objects  | 498.2 MB retained
+  2. EventEmitter     14,292 objects  | 127.4 MB retained
+  3. Array         2,341,892 items    |  89.1 MB retained
+  4. Map             189,441 objects  |  67.3 MB retained
+  5. Promise         441,291 objects  |  34.8 MB retained
+
+Suspected cause: PR #1847 adds per-message tracing middleware that calls addListener()
+on each message but never calls removeListener() on completion.
+Diff in event-processor/middleware/tracer.js confirms missing cleanup.
+Request: confirm root cause, advise on hotfix or rollback to v3.6.8.""",
+
+    """\
+[P2 HIGH] Kubernetes pod crash-loop after config update — ML inference service down
+
+Service: inference-api v4.2.0 (Python 3.11, PyTorch 2.1.0) on prod-gpu-cluster
+Deployed: 2024-11-13T22:15Z | First crash: 2024-11-13T22:17Z | Currently: CrashLoopBackOff
+
+kubectl logs inference-api-7c9d4f-m2xpk (last 30 lines before crash):
+
+2024-11-13T22:17:03Z INFO  Loading model: llama-3.1-8b-instruct-q4 from /models/cache
+2024-11-13T22:17:08Z INFO  CUDA devices found: 2 (A100-80GB × 2)
+2024-11-13T22:17:09Z INFO  Initialising tokenizer from /models/tokenizer
+2024-11-13T22:17:11Z INFO  Model load started — estimated 45s
+2024-11-13T22:17:34Z WARN  CUDA memory fragmentation detected — running defrag
+2024-11-13T22:17:56Z INFO  Model loaded: 7.2GB VRAM used (of 80GB available)
+2024-11-13T22:18:01Z INFO  Starting HTTP server on :8080
+2024-11-13T22:18:03Z INFO  Health check endpoint /health registered
+2024-11-13T22:18:04Z ERROR Failed to bind metrics endpoint :9090 — address already in use
+2024-11-13T22:18:04Z ERROR SIGTERM received — initiating graceful shutdown
+2024-11-13T22:18:09Z INFO  Shutdown complete
+
+kubectl describe pod inference-api-7c9d4f-m2xpk:
+  Liveness probe failed: HTTP probe failed with statuscode: 000
+  Readiness probe failed: connection refused (port 8080)
+  Last State: Terminated | Reason: Error | Exit Code: 1
+
+The metrics port conflict (:9090) appears to be caused by a prometheus-node-exporter
+DaemonSet deployed at 22:14Z that now occupies :9090 on every node.
+Inference service crashes before completing startup, triggering liveness failure loop.""",
+
+    """\
+[P3 MEDIUM] OAuth callback redirect_uri mismatch breaking SSO for enterprise customers
+
+Affected: All customers using SAML/OAuth SSO through Okta, Azure AD, or Google Workspace
+Started: 2024-11-12T09:00Z (correlated with DNS migration to new load balancer IPs)
+Reports received: 23 enterprise accounts, ~1,200 affected users
+
+OAuth error log (auth-service v6.3.1, 2024-11-12T09:05-09:45Z):
+
+09:05:12 ERROR OAuthCallbackError: redirect_uri_mismatch
+  client_id=ent_okta_prod_4821
+  received_redirect_uri=https://app-new.example.com/auth/callback
+  registered_redirect_uri=https://app.example.com/auth/callback
+09:07:33 ERROR OAuthCallbackError: redirect_uri_mismatch
+  client_id=ent_azure_prod_1923
+  received_redirect_uri=https://app-new.example.com/auth/callback
+  registered_redirect_uri=https://app.example.com/auth/callback
+09:12:44 ERROR SAMLAssertionError: invalid_destination
+  issuer=https://sso.enterprise-customer.com/saml/metadata
+  destination=https://app-new.example.com/saml/acs
+  expected=https://app.example.com/saml/acs
+
+Root cause hypothesis: DNS migration on 2024-11-12 changed CNAME from
+app.example.com → app-new.example.com, but OAuth app registrations still
+reference old URI. SP metadata in customer IdPs also references old ACS URLs.
+
+Affected customers have been notified. Need: updated redirect_uri in all
+OAuth app registrations + guidance to enterprise customers to update SP metadata.""",
+]
+
 _TRIAGE_ASKS = [
     "Classify this support ticket, assign priority (P1–P4), and route to the correct team with justification.",
     "Triage this ticket: determine severity, category, applicable SLA, and draft an initial customer response.",
@@ -67,6 +213,8 @@ class SupportTriageWorkflow(BaseWorkflow):
     workflow_class = WorkflowClass.SUPPORT_TRIAGE
 
     def generate_prompt(self) -> str:
-        ticket = random.choice(_TICKETS)
+        # 40% long tickets with trace/log attachments to overlap with CR payload sizes
+        pool = _LONG_TICKETS if random.random() < 0.40 else _TICKETS
+        ticket = random.choice(pool)
         ask = random.choice(_TRIAGE_ASKS)
         return f"{ask}\n\nTICKET:\n{ticket}"

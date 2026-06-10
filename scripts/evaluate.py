@@ -196,7 +196,8 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
                         burst_sequences=burst_seqs,
                         gap_sequences=gap_seqs,
                         out_dir=out_dir,
-                        n_epochs=20,
+                        n_epochs=80,
+                        patience=12,
                     )
                     all_results[f"{task}/transformer"] = tr_result
                 except Exception as exc:

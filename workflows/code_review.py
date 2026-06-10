@@ -1,7 +1,11 @@
 """
 Code review workflow — code submitted to executor for analysis and validation.
-Characteristic traffic: larger initial payload (the code), back-and-forth
-validator-executor loops, and structured review output.
+Characteristic traffic: code payload, back-and-forth validator-executor loops,
+and structured review output.
+
+Code snippets are intentionally mixed: small snippets (~800-2500B) and large
+modules (~5-8KB).  The large modules overlap with DA's large-CSV range so the
+classifier must use structural signals rather than payload size.
 """
 
 from __future__ import annotations
@@ -269,6 +273,311 @@ _CODE_SNIPPETS = [
     """),
 ]
 
+# Large modules (~5-8KB): overlap with DA's large-CSV payload range
+_LARGE_CODE_SNIPPETS = [
+    textwrap.dedent("""\
+        import time
+        import hashlib
+        import hmac
+        import base64
+        import json
+        from typing import Optional, Dict, Any
+        from dataclasses import dataclass, field
+        from functools import wraps
+
+        @dataclass
+        class TokenClaims:
+            sub: str
+            exp: int
+            iat: int
+            jti: str
+            scopes: list[str] = field(default_factory=list)
+            metadata: Dict[str, Any] = field(default_factory=dict)
+
+            def is_expired(self) -> bool:
+                return time.time() > self.exp
+
+            def has_scope(self, scope: str) -> bool:
+                return scope in self.scopes
+
+        class JWTError(Exception):
+            pass
+
+        class TokenExpiredError(JWTError):
+            pass
+
+        class InvalidSignatureError(JWTError):
+            pass
+
+        class InvalidClaimsError(JWTError):
+            pass
+
+        class JWTManager:
+            ALGORITHM = "HS256"
+
+            def __init__(self, secret: str, default_ttl: int = 3600,
+                         refresh_ttl: int = 86400) -> None:
+                if len(secret) < 32:
+                    raise ValueError("Secret must be at least 32 characters")
+                self._secret = secret.encode("utf-8")
+                self.default_ttl = default_ttl
+                self.refresh_ttl = refresh_ttl
+                self._revoked: set[str] = set()
+
+            def _b64url_encode(self, data: bytes) -> str:
+                return base64.urlsafe_b64encode(data).rstrip(b"=").decode("utf-8")
+
+            def _b64url_decode(self, data: str) -> bytes:
+                padding = 4 - len(data) % 4
+                if padding != 4:
+                    data += "=" * padding
+                return base64.urlsafe_b64decode(data)
+
+            def _sign(self, header_b64: str, payload_b64: str) -> str:
+                msg = f"{header_b64}.{payload_b64}".encode("utf-8")
+                sig = hmac.new(self._secret, msg, hashlib.sha256).digest()
+                return self._b64url_encode(sig)
+
+            def create_token(self, subject: str, scopes: list[str] | None = None,
+                             ttl: int | None = None,
+                             metadata: Dict[str, Any] | None = None) -> str:
+                now = int(time.time())
+                jti = hashlib.sha256(
+                    f"{subject}{now}{id(self)}".encode()
+                ).hexdigest()[:16]
+                payload = {
+                    "sub": subject,
+                    "iat": now,
+                    "exp": now + (ttl or self.default_ttl),
+                    "jti": jti,
+                    "scopes": scopes or [],
+                    "meta": metadata or {},
+                }
+                header = {"alg": self.ALGORITHM, "typ": "JWT"}
+                header_b64 = self._b64url_encode(
+                    json.dumps(header, separators=(",", ":")).encode()
+                )
+                payload_b64 = self._b64url_encode(
+                    json.dumps(payload, separators=(",", ":")).encode()
+                )
+                sig = self._sign(header_b64, payload_b64)
+                return f"{header_b64}.{payload_b64}.{sig}"
+
+            def verify_token(self, token: str) -> TokenClaims:
+                parts = token.split(".")
+                if len(parts) != 3:
+                    raise JWTError("Malformed token: expected 3 parts")
+                header_b64, payload_b64, sig = parts
+                expected_sig = self._sign(header_b64, payload_b64)
+                if not hmac.compare_digest(expected_sig, sig):
+                    raise InvalidSignatureError("Token signature verification failed")
+                try:
+                    payload = json.loads(self._b64url_decode(payload_b64))
+                except (ValueError, UnicodeDecodeError) as exc:
+                    raise InvalidClaimsError(f"Cannot decode payload: {exc}") from exc
+                claims = TokenClaims(
+                    sub=payload["sub"],
+                    exp=payload["exp"],
+                    iat=payload["iat"],
+                    jti=payload["jti"],
+                    scopes=payload.get("scopes", []),
+                    metadata=payload.get("meta", {}),
+                )
+                if claims.jti in self._revoked:
+                    raise TokenExpiredError("Token has been revoked")
+                if claims.is_expired():
+                    raise TokenExpiredError(
+                        f"Token expired at {claims.exp}, current time {int(time.time())}"
+                    )
+                return claims
+
+            def refresh_token(self, token: str, ttl: int | None = None) -> str:
+                claims = self.verify_token(token)
+                self._revoked.add(claims.jti)
+                return self.create_token(
+                    claims.sub,
+                    scopes=claims.scopes,
+                    ttl=ttl or self.default_ttl,
+                    metadata=claims.metadata,
+                )
+
+            def revoke_token(self, token: str) -> None:
+                try:
+                    claims = self.verify_token(token)
+                    self._revoked.add(claims.jti)
+                except TokenExpiredError:
+                    pass
+
+            def require_scope(self, *scopes: str):
+                def decorator(fn):
+                    @wraps(fn)
+                    def wrapper(*args, **kwargs):
+                        token = kwargs.get("token") or (args[0] if args else None)
+                        if not isinstance(token, TokenClaims):
+                            raise JWTError("First argument must be a TokenClaims instance")
+                        missing = [s for s in scopes if not token.has_scope(s)]
+                        if missing:
+                            raise JWTError(f"Missing required scopes: {missing}")
+                        return fn(*args, **kwargs)
+                    return wrapper
+                return decorator
+    """),
+
+    textwrap.dedent("""\
+        import asyncio
+        import logging
+        import time
+        import uuid
+        from collections.abc import Callable, Awaitable
+        from dataclasses import dataclass, field
+        from enum import Enum
+        from typing import Any, TypeVar, Generic
+
+        T = TypeVar("T")
+        logger = logging.getLogger(__name__)
+
+        class TaskStatus(Enum):
+            PENDING = "pending"
+            RUNNING = "running"
+            DONE = "done"
+            FAILED = "failed"
+            CANCELLED = "cancelled"
+
+        @dataclass
+        class TaskResult(Generic[T]):
+            task_id: str
+            status: TaskStatus
+            result: T | None = None
+            error: str | None = None
+            created_at: float = field(default_factory=time.monotonic)
+            started_at: float | None = None
+            finished_at: float | None = None
+
+            @property
+            def duration_s(self) -> float | None:
+                if self.started_at and self.finished_at:
+                    return self.finished_at - self.started_at
+                return None
+
+        class WorkerPool:
+            def __init__(self, concurrency: int = 4, max_queue: int = 1000,
+                         task_timeout: float = 300.0) -> None:
+                if concurrency <= 0:
+                    raise ValueError("concurrency must be positive")
+                self.concurrency = concurrency
+                self.max_queue = max_queue
+                self.task_timeout = task_timeout
+                self._queue: asyncio.Queue = asyncio.Queue(max_queue)
+                self._results: dict[str, TaskResult] = {}
+                self._workers: list[asyncio.Task] = []
+                self._running = False
+                self._metrics = {
+                    "submitted": 0, "completed": 0, "failed": 0, "cancelled": 0
+                }
+
+            async def start(self) -> None:
+                if self._running:
+                    raise RuntimeError("Pool already started")
+                self._running = True
+                self._workers = [
+                    asyncio.create_task(self._worker(i), name=f"worker-{i}")
+                    for i in range(self.concurrency)
+                ]
+                logger.info("WorkerPool started: %d workers, queue_max=%d",
+                            self.concurrency, self.max_queue)
+
+            async def stop(self, timeout: float = 30.0) -> None:
+                if not self._running:
+                    return
+                self._running = False
+                for _ in self._workers:
+                    await self._queue.put(None)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*self._workers, return_exceptions=True),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Worker shutdown timed out; cancelling workers")
+                    for w in self._workers:
+                        w.cancel()
+                self._workers.clear()
+                logger.info("WorkerPool stopped. metrics=%s", self._metrics)
+
+            async def submit(self, fn: Callable[..., Awaitable[T]],
+                             *args: Any, **kwargs: Any) -> str:
+                if not self._running:
+                    raise RuntimeError("Pool is not running")
+                task_id = str(uuid.uuid4())
+                result: TaskResult = TaskResult(task_id=task_id,
+                                                status=TaskStatus.PENDING)
+                self._results[task_id] = result
+                self._metrics["submitted"] += 1
+                try:
+                    await asyncio.wait_for(
+                        self._queue.put((task_id, fn, args, kwargs)),
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError as exc:
+                    result.status = TaskStatus.FAILED
+                    result.error = "Queue full"
+                    raise RuntimeError("Task queue is full") from exc
+                return task_id
+
+            async def wait(self, task_id: str,
+                           poll_interval: float = 0.05) -> TaskResult:
+                while True:
+                    result = self._results.get(task_id)
+                    if result is None:
+                        raise KeyError(f"Unknown task_id: {task_id}")
+                    if result.status in (TaskStatus.DONE, TaskStatus.FAILED,
+                                         TaskStatus.CANCELLED):
+                        return result
+                    await asyncio.sleep(poll_interval)
+
+            async def _worker(self, worker_id: int) -> None:
+                logger.debug("Worker %d started", worker_id)
+                while True:
+                    item = await self._queue.get()
+                    if item is None:
+                        self._queue.task_done()
+                        break
+                    task_id, fn, args, kwargs = item
+                    result = self._results[task_id]
+                    result.status = TaskStatus.RUNNING
+                    result.started_at = time.monotonic()
+                    try:
+                        value = await asyncio.wait_for(
+                            fn(*args, **kwargs), timeout=self.task_timeout
+                        )
+                        result.status = TaskStatus.DONE
+                        result.result = value
+                        self._metrics["completed"] += 1
+                    except asyncio.TimeoutError:
+                        result.status = TaskStatus.FAILED
+                        result.error = (
+                            f"Task timed out after {self.task_timeout}s"
+                        )
+                        self._metrics["failed"] += 1
+                        logger.warning("Task %s timed out (worker %d)",
+                                       task_id, worker_id)
+                    except asyncio.CancelledError:
+                        result.status = TaskStatus.CANCELLED
+                        self._metrics["cancelled"] += 1
+                        raise
+                    except Exception as exc:
+                        result.status = TaskStatus.FAILED
+                        result.error = f"{type(exc).__name__}: {exc}"
+                        self._metrics["failed"] += 1
+                        logger.exception("Task %s failed (worker %d): %s",
+                                         task_id, worker_id, exc)
+                    finally:
+                        result.finished_at = time.monotonic()
+                        self._queue.task_done()
+                logger.debug("Worker %d stopped", worker_id)
+    """),
+]
+
 _REVIEW_ASKS = [
     "Review this code for correctness, edge cases, and security vulnerabilities. Assign a quality score 1–10 with justification.",
     "Find all bugs and potential runtime errors. Suggest concrete fixes with revised code snippets.",
@@ -285,6 +594,8 @@ class CodeReviewWorkflow(BaseWorkflow):
     workflow_class = WorkflowClass.CODE_REVIEW
 
     def generate_prompt(self) -> str:
-        snippet = random.choice(_CODE_SNIPPETS)
+        # 50% large modules to overlap with DA's large-CSV payload range
+        pool = _LARGE_CODE_SNIPPETS if random.random() < 0.50 else _CODE_SNIPPETS
+        snippet = random.choice(pool)
         ask = random.choice(_REVIEW_ASKS)
         return f"{ask}\n\n```python\n{snippet}\n```"

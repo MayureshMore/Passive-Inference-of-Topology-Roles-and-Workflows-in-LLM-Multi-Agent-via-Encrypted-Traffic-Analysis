@@ -1,12 +1,12 @@
 """
 Data analysis workflow — structured data (CSV-like) analysed and summarised.
-Characteristic traffic: larger initial payload (the data), smaller streaming
-responses as the executor works through rows, then a validator summary.
+Characteristic traffic: initial data payload, smaller streaming responses as
+the executor works through rows, then a validator summary.
 
-Datasets are ~5–7 KB each so the HTTP POST body sent to the executor is
-substantially larger than the LLM response.  This creates a clear directional
-asymmetry (high bytes_in, low bytes_out) that separates DA from
-research_retrieval in the feature space.
+Datasets are intentionally mixed: small datasets (~500-1500B) overlap with
+CR/ST/RR payload sizes; large datasets (~5-7KB) sit above them.  This
+ensures the classifier cannot rely on payload size alone and must use
+structural signals (delegation depth, SSE patterns, timing).
 """
 
 from __future__ import annotations
@@ -15,6 +15,77 @@ import random
 
 from .base import BaseWorkflow, WorkflowClass
 
+# Small datasets (~500-1500B): overlap with CR/ST/RR payload sizes
+_SMALL_DATASETS = [
+    ("daily_kpis.csv",
+     "date,active_users,new_signups,revenue_usd,support_tickets_opened\n"
+     "2024-10-01,1423,45,8920.00,12\n"
+     "2024-10-02,1389,38,7840.00,9\n"
+     "2024-10-03,1512,67,10230.00,15\n"
+     "2024-10-04,1478,52,9100.00,11\n"
+     "2024-10-05,983,21,5120.00,7\n"
+     "2024-10-06,876,18,4230.00,5\n"
+     "2024-10-07,1534,71,11450.00,18\n"
+     "2024-10-08,1621,83,12780.00,21\n"
+     "2024-10-09,1587,69,11890.00,14\n"
+     "2024-10-10,1445,55,9340.00,13\n"
+     "2024-10-11,1389,41,8120.00,10\n"
+     "2024-10-12,1023,29,6230.00,8\n"
+     "2024-10-13,934,22,5450.00,6\n"
+     "2024-10-14,1678,89,13450.00,22\n"),
+
+    ("sprint_metrics.csv",
+     "sprint,team,planned_pts,completed_pts,carryover_pts,"
+     "bugs_filed,bugs_closed,velocity_trend\n"
+     "SP-41,Backend,42,38,4,8,6,stable\n"
+     "SP-41,Frontend,35,35,0,3,4,improving\n"
+     "SP-41,Platform,28,22,6,12,9,declining\n"
+     "SP-41,Mobile,30,30,0,5,5,stable\n"
+     "SP-42,Backend,44,40,4,6,8,stable\n"
+     "SP-42,Frontend,36,34,2,4,3,stable\n"
+     "SP-42,Platform,25,24,1,7,10,improving\n"
+     "SP-42,Mobile,32,29,3,4,4,stable\n"
+     "SP-43,Backend,40,40,0,5,7,improving\n"
+     "SP-43,Frontend,38,36,2,3,5,stable\n"
+     "SP-43,Platform,26,26,0,8,8,stable\n"
+     "SP-43,Mobile,31,31,0,3,6,improving\n"),
+
+    ("support_queue_daily.csv",
+     "date,category,tickets_opened,tickets_resolved,"
+     "avg_resolution_hrs,csat_score,escalations\n"
+     "2024-11-04,billing,14,12,4.2,4.1,1\n"
+     "2024-11-04,technical,28,24,6.8,3.9,4\n"
+     "2024-11-04,auth,9,9,2.1,4.5,0\n"
+     "2024-11-04,integration,12,10,8.4,3.7,2\n"
+     "2024-11-05,billing,11,13,3.8,4.3,0\n"
+     "2024-11-05,technical,31,27,7.2,3.8,5\n"
+     "2024-11-05,auth,7,8,1.9,4.6,0\n"
+     "2024-11-05,integration,15,12,9.1,3.6,3\n"
+     "2024-11-06,billing,16,14,4.5,4.0,2\n"
+     "2024-11-06,technical,25,26,6.5,4.1,3\n"
+     "2024-11-06,auth,11,10,2.3,4.4,1\n"
+     "2024-11-06,integration,10,11,7.8,3.9,1\n"
+     "2024-11-07,billing,8,9,3.2,4.4,0\n"
+     "2024-11-07,technical,19,22,5.9,4.2,2\n"
+     "2024-11-07,auth,6,7,1.7,4.7,0\n"
+     "2024-11-07,integration,8,9,6.9,4.1,1\n"),
+
+    ("product_usage.csv",
+     "feature,mau,wau,dau,dau_mau_ratio,"
+     "avg_session_min,p50_session_min,p90_session_min,churn_pct\n"
+     "Dashboard,12450,8920,3450,0.277,8.4,6.2,18.9,2.1\n"
+     "Reports,9870,6230,1890,0.191,12.3,9.1,28.4,3.4\n"
+     "API_Console,4560,2340,890,0.195,15.6,11.2,34.5,1.8\n"
+     "Integrations,7890,4560,1234,0.156,6.7,4.8,14.2,4.2\n"
+     "Alerts,5670,3450,1567,0.276,3.2,2.1,8.9,5.1\n"
+     "Analytics,8920,5230,2120,0.238,11.4,8.3,25.6,2.9\n"
+     "TeamMgmt,3450,1890,567,0.164,5.1,3.7,11.8,6.3\n"
+     "BillingPortal,2340,1230,312,0.133,4.3,3.1,9.4,8.2\n"
+     "MobileApp,6780,4120,1890,0.279,18.9,14.2,42.1,3.1\n"
+     "DataExport,1230,678,189,0.154,7.8,5.4,17.3,7.4\n"),
+]
+
+# Large datasets (~5-7KB): original full datasets
 _DATASETS = [
     ("sales_q3.csv",
      "date,product,region,units,revenue\n"
@@ -537,6 +608,8 @@ class DataAnalysisWorkflow(BaseWorkflow):
     workflow_class = WorkflowClass.DATA_ANALYSIS
 
     def generate_prompt(self) -> str:
-        name, data = random.choice(_DATASETS)
+        # 35% small datasets to overlap with CR/ST/RR payload sizes
+        pool = _SMALL_DATASETS if random.random() < 0.35 else _DATASETS
+        name, data = random.choice(pool)
         ask = random.choice(_ANALYSIS_ASKS)
         return f"{ask}\n\nDataset: {name}\n\n```csv\n{data}```"
