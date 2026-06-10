@@ -50,6 +50,15 @@ class PerSystemFeatures:
     n_response_heavy_flows: int = 0         # flows where bytes_in > bytes_out
     mean_flow_response_ratio: float = 0.0   # mean(bytes_in / flow_bytes) across flows
 
+    # Request-body size discrimination: captures which flow is request-heavy vs
+    # response-heavy. High max = one flow sends lots of data TO an agent (DA: CSV
+    # payload to executor). Low min = one flow receives lots of data FROM an agent
+    # (RR: retriever sends back large results). max_first_burst_bytes proxies the
+    # initial HTTP POST body size (the CSV data) without reading payload content.
+    max_flow_bytes_out_ratio: float = 0.0   # max(bytes_out/total) across flows
+    min_flow_bytes_out_ratio: float = 0.0   # min(bytes_out/total) across flows
+    max_flow_bytes_in: float = 0.0          # max(bytes_in) across flows — large for DA (CSV payload)
+
     # Per-flow feature statistics (mean and std of each per-flow dimension)
     pf_mean: np.ndarray = field(default_factory=lambda: np.zeros(35, dtype=np.float32))
     pf_std: np.ndarray = field(default_factory=lambda: np.zeros(35, dtype=np.float32))
@@ -74,10 +83,13 @@ class PerSystemFeatures:
                 self.flow_bytes_cv,
                 self.n_response_heavy_flows,
                 self.mean_flow_response_ratio,
+                self.max_flow_bytes_out_ratio,
+                self.min_flow_bytes_out_ratio,
+                self.max_flow_bytes_in,
             ],
             dtype=np.float32,
         )
-        return np.concatenate([scalar, self.pf_mean, self.pf_std])  # 87-dim
+        return np.concatenate([scalar, self.pf_mean, self.pf_std])  # 90-dim
 
     @staticmethod
     def FEATURE_NAMES() -> list[str]:
@@ -89,11 +101,13 @@ class PerSystemFeatures:
             "total_bursts", "mean_burst_rate", "bytes_out_ratio",
             "heaviest_flow_bytes_frac", "flow_bytes_cv",
             "n_response_heavy_flows", "mean_flow_response_ratio",
+            "max_flow_bytes_out_ratio", "min_flow_bytes_out_ratio",
+            "max_flow_bytes_in",
         ]
         pf_names = PerFlowFeatures.FEATURE_NAMES()
         pf_mean_names = [f"pf_mean_{n}" for n in pf_names]
         pf_std_names = [f"pf_std_{n}" for n in pf_names]
-        return scalar_names + pf_mean_names + pf_std_names  # 17+35+35 = 87 names
+        return scalar_names + pf_mean_names + pf_std_names  # 20+35+35 = 90 names
 
 
 def compute_per_system(
@@ -183,6 +197,24 @@ def compute_per_system(
             for pf in per_flow_features
         ]
         feat.mean_flow_response_ratio = float(np.mean(ratios))
+
+    # Request-body size features: bytes_out / total per flow.
+    # bytes_out = agent→client (responses); bytes_in = client→agent (requests).
+    # DA executor-bound flow: large bytes_in (CSV request) → low bytes_out_ratio.
+    # RR retriever-bound flow: large bytes_out (retrieval response) → high ratio.
+    if per_flow_features:
+        out_ratios = [
+            pf.total_bytes_out / (pf.total_bytes_out + pf.total_bytes_in + 1e-8)
+            for pf in per_flow_features
+        ]
+        feat.max_flow_bytes_out_ratio = float(max(out_ratios))
+        feat.min_flow_bytes_out_ratio = float(min(out_ratios))
+
+    # Max inbound bytes across all flows: large for DA (CSV payload sent to executor)
+    # and small for RR (only query text). First-burst bytes cannot be used because
+    # the burst segmenter always produces a SYN-only first burst (68B).
+    if per_flow_features:
+        feat.max_flow_bytes_in = float(max(pf.total_bytes_in for pf in per_flow_features))
 
     # Per-flow feature matrix → mean and std across flows
     pf_matrix = np.stack([pf.to_vector() for pf in per_flow_features], axis=0)

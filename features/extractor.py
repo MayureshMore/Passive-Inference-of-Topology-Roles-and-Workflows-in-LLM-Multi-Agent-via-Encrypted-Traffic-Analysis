@@ -38,11 +38,11 @@ class TraceFeatures:
         """
         Flat feature vector for the Random Forest baseline.
 
-        Layout (192-dim):
+        Layout (195-dim):
           [0:35]   pf_mean  — mean over all flows
           [35:70]  pf_top1  — heaviest flow by total bytes
           [70:105] pf_top2  — 2nd heaviest flow by total bytes
-          [105:192] per_system (87-dim)
+          [105:195] per_system (90-dim)
         """
         zero35 = np.zeros(35, dtype=np.float32)
         if self.per_flow:
@@ -60,7 +60,7 @@ class TraceFeatures:
             pf_top1 = zero35
             pf_top2 = zero35
         ps_vec = self.per_system.to_vector()  # 87-dim
-        return np.concatenate([pf_mean, pf_top1, pf_top2, ps_vec]).astype(np.float32)  # 192-dim
+        return np.concatenate([pf_mean, pf_top1, pf_top2, ps_vec]).astype(np.float32)  # 195-dim
 
     def save(self, out_path: Path) -> None:
         np.savez_compressed(
@@ -182,7 +182,7 @@ class FeatureExtractor:
             if src_port not in self.agent_ports and dst_port not in self.agent_ports:
                 continue
             ts = float(pkt.time)
-            size = len(pkt)
+            size = pkt.wirelen  # actual on-wire length; len(pkt) would give snaplen-truncated size
             src_ip = pkt[IP].src
             dst_ip = pkt[IP].dst
             # Canonical key: agent port always on the right (as "dst").

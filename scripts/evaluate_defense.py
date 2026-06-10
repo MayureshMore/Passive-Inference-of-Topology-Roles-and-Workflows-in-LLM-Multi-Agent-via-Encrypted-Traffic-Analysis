@@ -46,13 +46,13 @@ PROCESSED_DIR = Path("data/processed")
 MODELS_DIR    = Path("data/models")
 RESULTS_DIR   = Path("data/results")
 
-# ── Feature index groups (flat vector layout: 192-dim)
+# ── Feature index groups (flat vector layout: 195-dim)
 # pf_mean block:             indices   0–34  (35-dim)
 # pf_top1 block (heaviest):  indices  35–69  (35-dim)
 # pf_top2 block (2nd heavy): indices  70–104 (35-dim)
-# per_system scalar block:   indices 105–121 (17 scalars)
-# per_system pf_mean block:  indices 122–156 (35-dim)
-# per_system pf_std block:   indices 157–191 (35-dim)
+# per_system scalar block:   indices 105–124 (20 scalars)
+# per_system pf_mean block:  indices 125–159 (35-dim)
+# per_system pf_std block:   indices 160–194 (35-dim)
 #
 # pf layout offsets (same for pf_mean, pf_top1, pf_top2):
 #   n_pkts_out(+0), n_pkts_in(+1), bytes_out(+2), bytes_in(+3),
@@ -68,7 +68,9 @@ RESULTS_DIR   = Path("data/results")
 #   flow_start_spread(112), flow_end_spread(113), max_concurrent(114),
 #   total_bursts(115), mean_burst_rate(116), bytes_out_ratio(117),
 #   heaviest_flow_bytes_frac(118), flow_bytes_cv(119),
-#   n_response_heavy_flows(120), mean_flow_response_ratio(121)
+#   n_response_heavy_flows(120), mean_flow_response_ratio(121),
+#   max_flow_bytes_out_ratio(122), min_flow_bytes_out_ratio(123),
+#   max_flow_bytes_in(124)
 
 # Size-related indices across all three pf blocks + per_system
 SIZE_FEATURE_INDICES  = list(range(0, 12))           # pf_mean: pkt counts + size stats
@@ -85,7 +87,7 @@ TIMING_FEATURE_INDICES += [47, 48, 49, 68]          # pf_top1: 35+12, 35+13, 35+
 TIMING_FEATURE_INDICES += [82, 83, 84, 103]         # pf_top2: 70+12, 70+13, 70+14, 70+33
 TIMING_FEATURE_INDICES += [111, 112, 113]           # per_system: duration, flow_start/end spread
 
-ALL_INDICES = list(range(192))
+ALL_INDICES = list(range(195))
 
 
 # Per-flow (role, 35-dim) feature layout:

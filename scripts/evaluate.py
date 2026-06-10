@@ -67,7 +67,7 @@ def load_dataset(
             continue
         d = np.load(npz_path, allow_pickle=False)
         vec = d["flat"]
-        expected_dim = 35 if is_role_sample else 192
+        expected_dim = 35 if is_role_sample else 195
         if vec.shape[0] != expected_dim:
             logger.warning(
                 "Skipping %s: expected %d-dim flat vector, got %d",
@@ -91,19 +91,19 @@ def load_dataset(
 
 # ── Closed-world evaluation ───────────────────────────────────────────────────
 
-# All 17 per-system SCALAR indices in the 192-dim flat vector.
-# Flat vector layout (192-dim):
+# All 20 per-system SCALAR indices in the 195-dim flat vector.
+# Flat vector layout (195-dim):
 #   [0:35]   pf_mean (35-dim)
 #   [35:70]  pf_top1 — heaviest flow by total bytes (35-dim)
 #   [70:105] pf_top2 — 2nd heaviest flow by total bytes (35-dim)
-#   [105:192] per_system (87-dim):
-#     [105:122] = 17 scalars, [122:157] = per_system pf_mean, [157:192] = pf_std
-# Zeroing all 17 per-system scalars is the honest non-tautological topology test:
-# n_flows, host counts, volumes, timing spreads, burst rates, AND the new
-# traffic-distribution scalars (heaviest_flow_frac, flow_bytes_cv, etc.).
-_ALL_SYSTEM_SCALAR_INDICES = list(range(105, 122))  # n_flows…mean_flow_response_ratio
+#   [105:195] per_system (90-dim):
+#     [105:125] = 20 scalars, [125:160] = per_system pf_mean, [160:195] = pf_std
+# Zeroing all 20 per-system scalars is the honest non-tautological topology test:
+# n_flows, host counts, volumes, timing spreads, burst rates, traffic-distribution
+# scalars, AND the new request-body ratio scalars.
+_ALL_SYSTEM_SCALAR_INDICES = list(range(105, 125))  # n_flows…max_flow_bytes_in
 
-# Parallelism concurrency-counter ablation indices (within the 192-dim vector).
+# Parallelism concurrency-counter ablation indices (within the 195-dim vector).
 # These three per-system scalars directly ENCODE concurrency as a count/spread —
 # they are structural (derived from flow timing) rather than a subtle side-channel:
 #   flow_start_spread (112): max(start_ts) − min(start_ts) across flows
@@ -134,7 +134,7 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         if ablate_structural and task == "topology":
             X = X.copy()
             X[:, _ALL_SYSTEM_SCALAR_INDICES] = 0.0
-            logger.info("Ablation: zeroed ALL 17 per-system scalar features (indices 105–121)")
+            logger.info("Ablation: zeroed ALL 20 per-system scalar features (indices 105–124)")
 
         if ablate_parallelism and task == "parallelism":
             X = X.copy()
@@ -157,7 +157,7 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         all_results[f"{task}/rf"] = rf_result
 
         if rf_only:
-            logger.info("Skipping GBT/CNN/Transformer (--rf-only)", task)
+            logger.info("Skipping GBT/CNN/Transformer (--rf-only) [%s]", task)
         else:
             # ── GBT baseline ────────────────────────────────────────────────
             logger.info("--- Closed-world GBT [%s] ---", task)

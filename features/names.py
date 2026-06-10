@@ -1,21 +1,21 @@
 """
-Human-readable feature names for the 192-dim flat feature vector.
+Human-readable feature names for the 195-dim flat feature vector.
 
-Flat vector layout (192 dimensions):
+Flat vector layout (195 dimensions):
   [0:35]    pf_mean   — per-flow stats averaged across ALL flows in the trace
   [35:70]   pf_top1   — per-flow stats for the heaviest flow (by total bytes)
   [70:105]  pf_top2   — per-flow stats for the 2nd heaviest flow
-  [105:192] per_system — 87-dim system-wide aggregate:
-              [105:122]  17 scalar stats (n_flows, timing spreads, …)
-              [122:157]  per-system pf_mean (mean of each pf dim across flows)
-              [157:192]  per-system pf_std  (std  of each pf dim across flows)
+  [105:195] per_system — 90-dim system-wide aggregate:
+              [105:125]  20 scalar stats (n_flows, timing spreads, request-body ratios…)
+              [125:160]  per-system pf_mean (mean of each pf dim across flows)
+              [160:195]  per-system pf_std  (std  of each pf dim across flows)
 
 The 35-dim per-flow (pf) sub-vector layout is defined in PerFlowFeatures.FEATURE_NAMES().
-The 17-dim per-system scalar layout is in PerSystemFeatures.FEATURE_NAMES()[:17].
+The 20-dim per-system scalar layout is in PerSystemFeatures.FEATURE_NAMES()[:20].
 
 Usage:
     from features.names import FLAT_FEATURE_NAMES, ROLE_FEATURE_NAMES
-    names = FLAT_FEATURE_NAMES()   # 192 names for per-trace NPZs
+    names = FLAT_FEATURE_NAMES()   # 195 names for per-trace NPZs
     names = ROLE_FEATURE_NAMES()   # 35 names for per-agent role NPZs
 """
 
@@ -28,10 +28,10 @@ def _pf_names() -> list[str]:
 
 
 def FLAT_FEATURE_NAMES() -> list[str]:
-    """Return the 192 feature names for per-trace flat vectors."""
+    """Return the 195 feature names for per-trace flat vectors."""
     pf = _pf_names()
     from .per_system import PerSystemFeatures
-    sys_names = PerSystemFeatures.FEATURE_NAMES()  # 87 names
+    sys_names = PerSystemFeatures.FEATURE_NAMES()  # 90 names
 
     names: list[str] = []
     # pf_mean block [0:35]
@@ -40,10 +40,10 @@ def FLAT_FEATURE_NAMES() -> list[str]:
     names += [f"pf_top1.{n}" for n in pf]
     # pf_top2 block [70:105]
     names += [f"pf_top2.{n}" for n in pf]
-    # per_system block [105:192]
+    # per_system block [105:195]
     names += [f"sys.{n}" for n in sys_names]
 
-    assert len(names) == 192, f"Expected 192 names, got {len(names)}"
+    assert len(names) == 195, f"Expected 195 names, got {len(names)}"
     return names
 
 
