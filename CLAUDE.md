@@ -100,14 +100,25 @@ python scripts/evaluate.py --mode all                 # full suite (RF+GBT+CNN)
 # ── 600-trace collection (50 per workflow×topology pair) ─────────────────
 # 50 × 4 workflows × 3 topologies = 600 traces
 sudo venv/bin/python scripts/run_pilot.py --n 50 --out data/raw 2>&1 | tee logs/pilot_600.log
+
+# ── Phase 3: real background traffic for open-world evaluation ────────────
+# Collect ~150 background traces (25 per category × 6 categories)
+# Requires sudo for tcpdump; servers start automatically on ports 9100–9107.
+sudo venv/bin/python scripts/collect_background.py --n 25 --out data/raw_background \
+  --processed data/processed_background --scapy 2>&1 | tee logs/background.log
+
+# Open-world evaluation with real background as unknowns
+python scripts/evaluate_open_world_background.py
 ```
 
 ## Data directory (gitignored)
 ```
-data/raw/          raw .pcap files, named <workflow>_<topology>_<run_id>.pcap
-data/processed/    feature matrices as .npz, labels as .csv
-data/models/       trained model checkpoints (.pkl for RF, .pt for Transformer)
-data/traces/       metadata-only CSV traces (safe to share; no payload)
+data/raw/                   raw .pcap files, named <workflow>_<topology>_<run_id>.pcap
+data/raw_background/        background traffic .pcap files for Phase 3 open-world test
+data/processed/             feature matrices as .npz, labels as .json
+data/processed_background/  background feature matrices + labels_background.json
+data/models/                trained model checkpoints (.pkl for RF, .pt for Transformer)
+data/traces/                metadata-only CSV traces (safe to share; no payload)
 ```
 
 ## Critical constraints

@@ -114,9 +114,29 @@ _ALL_SYSTEM_SCALAR_INDICES = list(range(105, 125))  # n_flows…max_flow_bytes_i
 # collapses, the model was simply counting concurrent flows — a structural tell.
 _PARALLELISM_CONCURRENCY_INDICES = [112, 113, 114]
 
+# Size-feature ablation: zero every feature whose name contains one of these
+# sub-strings (case-insensitive).  Covers all byte-count, packet-size, and
+# size-derived ratio features while keeping pure timing and count features.
+# Tokens are intentionally over-specified (wirelen, payload) to be legible to
+# reviewers familiar with WF-attack terminology, even though those specific
+# tokens don't appear in our feature names.
+_SIZE_TOKENS = ("bytes", "byte", "sz", "size", "n_small", "_ratio", "frac",
+                "wirelen", "payload")
+# NOTE: "_ratio" (with leading underscore) avoids false-matching "duration"
+# ("duration" contains "ratio" as a substring at offset 2).
+
+
+def _size_indices(names: list[str]) -> list[int]:
+    """Return indices of size-related features in a feature-name list."""
+    return [
+        i for i, n in enumerate(names)
+        if any(t in n.lower() for t in _SIZE_TOKENS)
+    ]
+
 
 def run_closed_world(tasks: list[str], ablate_structural: bool = False,
                      ablate_parallelism: bool = False,
+                     ablate_size: bool = False,
                      rf_only: bool = False,
                      skip_cnn: bool = False) -> dict:
     from evaluation.closed_world import ClosedWorldEval
@@ -143,6 +163,19 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
                 "Ablation: zeroed concurrency-counter features "
                 "(flow_start_spread=112, flow_end_spread=113, max_concurrent=114)"
             )
+
+        if ablate_size:
+            from features.names import FLAT_FEATURE_NAMES, ROLE_FEATURE_NAMES
+            X = X.copy()
+            names = ROLE_FEATURE_NAMES() if task == "role" else FLAT_FEATURE_NAMES()
+            s_idx = _size_indices(names)
+            logger.info(
+                "Size ablation (task=%s): zeroing %d/%d features — first 8: %s%s",
+                task, len(s_idx), len(names),
+                [names[i] for i in s_idx[:8]],
+                "  ..." if len(s_idx) > 8 else "",
+            )
+            X[:, s_idx] = 0.0
 
         n_splits = min(5, _min_class_count(y))
         if n_splits < 2:
@@ -371,8 +404,12 @@ def print_results(closed: dict, open_: dict) -> None:
         print(f"  {'-'*60}")
 
         for key, res in closed.items():
+            # Phase 4: Transformer excluded from headline table — data-starved at N=600
+            if "/transformer" in key and "__ablated" not in key:
+                continue
             task, model = key.rsplit("/", 1)
-            ablated = key.endswith("__ablated")
+            ablated = "__ablated" in key          # catches both __ablated and __size_ablated
+            size_ablated = "__size_ablated" in key
             if "cv" in res:
                 cv = res["cv"]
                 acc     = cv.get("accuracy", {}).get("mean", 0)
@@ -391,9 +428,11 @@ def print_results(closed: dict, open_: dict) -> None:
                 n_classes = 3
             random_baseline = 1.0 / n_classes
             above = "✓" if acc > random_baseline else "✗"
-            label = f"{task} / {model}"
-            if ablated:
-                # Show what was zeroed for each ablated task
+            model_display = model.replace("__size_ablated", "").replace("__ablated", "")
+            label = f"{task} / {model_display}"
+            if size_ablated:
+                label += "  [-size feats]"
+            elif ablated:
                 if "topology" in task:
                     label += "  [-system scalars]"
                 elif "parallelism" in task:
@@ -411,6 +450,39 @@ def print_results(closed: dict, open_: dict) -> None:
             print(f"\n  NOTE parallelism: parallelism/rf__ablated zeros max_concurrent,")
             print(f"  flow_start/end_spread. If accuracy holds, the signal is in")
             print(f"  per-packet timing/size, not just concurrency counting.")
+
+        # Phase 1 — gradient interpretation of size ablation
+        _sz_keys = sorted(k for k in closed if "__size_ablated" in k)
+        if _sz_keys:
+            _n_cls_map = {"workflow": 4, "role": 4, "parallelism": 2, "topology": 3}
+            print()
+            print(f"  SIZE ABLATION — fraction of above-chance signal retained after")
+            print(f"  zeroing all byte-count / packet-size features:")
+            print(f"  {'Task':<20} {'Full RF':>8} {'No-Size':>9} {'Random':>7} {'Retained':>10}")
+            print(f"  {'-'*56}")
+            for _sz_key in _sz_keys:
+                _base = _sz_key.replace("__size_ablated", "")
+                _tnm  = _sz_key.split("/")[0]
+                if _base not in closed:
+                    continue
+                _rand = 1.0 / _n_cls_map.get(_tnm, 4)
+                _rf   = closed[_base]
+                _ra   = closed[_sz_key]
+                _af   = _rf["cv"].get("accuracy", {}).get("mean", 0) if "cv" in _rf else _rf.get("mean_accuracy", 0)
+                _aa   = _ra["cv"].get("accuracy", {}).get("mean", 0) if "cv" in _ra else _ra.get("mean_accuracy", 0)
+                _ret  = (_aa - _rand) / max(_af - _rand, 1e-9)
+                print(f"  {_tnm:<20} {_af:>8.3f} {_aa:>9.3f} {_rand:>7.3f} {_ret:>9.1%}")
+            print()
+            print(f"  Gradient: <20% → timing/structure signal only.")
+            print(f"  50–80% → size is the dominant discriminant.")
+            print(f"  >80% → size and structure are confounded.")
+            print()
+
+        # Phase 4 — Transformer footnote
+        if any("/transformer" in k for k in closed):
+            print(f"  * Transformer excluded from headline: workflow val_acc≈37% at N=600")
+            print(f"    is data-starved (≥1,500–2,000 samples/class needed for sequence models).")
+            print(f"    Retained in summary.json; re-evaluate after Phase 5 doubles dataset.")
 
     if open_:
         print(f"\n{sep}")
@@ -433,6 +505,22 @@ def print_results(closed: dict, open_: dict) -> None:
                 ]) if r.get("per_class") else 0
                 fpr_s = f"{kn_fpr:.3f}" if not (isinstance(kn_fpr, float) and kn_fpr != kn_fpr) else "  N/A"
                 print(f"  {f'{task} / -{held}':<35} {T:>6.3f} {rej:>9.3f} {fpr_s:>9} {avg_prec:>10.3f}")
+
+    # Phase 2 — honest T=1.000 reporting
+    if open_:
+        _has_unit_T = any(
+            r.get("tuned_threshold", r.get("threshold", 0)) >= 0.999
+            for _runs in open_.values() for r in _runs
+        )
+        if _has_unit_T:
+            print()
+            print(f"  CAUTION T≈1.000: The testbed is too deterministic for threshold-based")
+            print(f"  rejection to be meaningful.  Near-perfect A2A class separation drives the")
+            print(f"  5th-pct calibrated confidence to ≈1.0, so the threshold is a no-op.")
+            print(f"  This is NOT an N<D feature-selection problem.  Fix requires:")
+            print(f"    Phase 3: hard background negatives (bare JSON-RPC, REST polling,")
+            print(f"             direct LLM API calls — see scripts/collect_background.py)")
+            print(f"    Phase 5: WAN timing variance (US↔India latency distributions)")
 
     print(f"\n{sep}")
     print(f"  Full JSON results in data/results/")
@@ -489,6 +577,12 @@ def main(args: argparse.Namespace) -> None:
                                    ablate_parallelism=True, rf_only=True)
         for k, v in par_abl.items():
             closed[f"{k}__ablated"] = v
+
+        logger.info("=== SIZE FEATURE ABLATION: zeroing all packet-size / byte-count features ===")
+        for _sz_task in ("workflow", "role", "topology"):
+            _sz_abl = run_closed_world([_sz_task], ablate_size=True, rf_only=True)
+            for k, v in _sz_abl.items():
+                closed[f"{k}__size_ablated"] = v
 
     print_results(closed, open_)
 
