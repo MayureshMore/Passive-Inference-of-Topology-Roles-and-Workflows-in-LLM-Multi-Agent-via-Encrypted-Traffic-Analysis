@@ -269,6 +269,14 @@ class BaseA2AAgent:
 
     async def shutdown(self) -> None:
         """Signal uvicorn to exit gracefully (sets should_exit flag)."""
+        # Close the outbound HTTP client first so keep-alive connections to
+        # downstream agents are torn down from the CLIENT side.  If we skip
+        # this, uvicorn shuts down the downstream server and sends a FIN to
+        # our idle socket, leaving it in CLOSE_WAIT.  _kill_port() then runs
+        # `lsof -ti tcp:<port> | xargs kill -9`, finds the CLOSE_WAIT socket
+        # (remote port matches), and kills the main process with SIGKILL.
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
         if self._server is not None:
             self._server.should_exit = True
 

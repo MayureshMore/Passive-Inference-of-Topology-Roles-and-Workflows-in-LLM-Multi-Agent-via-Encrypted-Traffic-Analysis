@@ -172,8 +172,12 @@ def _orchestrator(topology: str, model: str) -> OrchestratorAgent:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _kill_port(port: int) -> None:
+    # Exclude the current PID: lsof matches any socket where the port appears
+    # as LOCAL **or** REMOTE, so our own CLOSE_WAIT / TIME_WAIT sockets would
+    # otherwise cause us to kill ourselves with SIGKILL.
+    own_pid = os.getpid()
     proc = await asyncio.create_subprocess_shell(
-        f"lsof -ti tcp:{port} 2>/dev/null | xargs kill -9 2>/dev/null; true",
+        f"lsof -ti tcp:{port} 2>/dev/null | grep -v '^{own_pid}$' | xargs kill -9 2>/dev/null; true",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
