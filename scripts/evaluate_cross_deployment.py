@@ -226,6 +226,8 @@ def run_internal_cv(
 
     fold_accs: list[float] = []
     fold_f1s:  list[float] = []
+    oof_t: list[str] = []
+    oof_p: list[str] = []
 
     for fold, (train_idx, test_idx) in enumerate(skf.split(X, y_arr, g_arr)):
         X_tr, X_te = X[train_idx], X[test_idx]
@@ -237,6 +239,11 @@ def run_internal_cv(
         preds = clf.predict(X_te)
         fold_accs.append(_accuracy(y_te, preds))
         fold_f1s.append(_macro_f1(y_te, preds, classes))
+        oof_t.extend(y_te)
+        oof_p.extend(list(preds))
+
+    # 95 % bootstrap CI on pooled out-of-fold preds — same method as transfer CIs.
+    ci = bootstrap_ci(oof_t, oof_p, classes)
 
     return {
         "experiment": label,
@@ -246,8 +253,12 @@ def run_internal_cv(
         "n_splits":   n_splits,
         "accuracy":        float(np.mean(fold_accs)),
         "accuracy_std":    float(np.std(fold_accs)),
+        "accuracy_ci_lo":  ci["accuracy_ci_lo"],
+        "accuracy_ci_hi":  ci["accuracy_ci_hi"],
         "macro_f1":        float(np.mean(fold_f1s)),
         "macro_f1_std":    float(np.std(fold_f1s)),
+        "macro_f1_ci_lo":  ci["macro_f1_ci_lo"],
+        "macro_f1_ci_hi":  ci["macro_f1_ci_hi"],
     }
 
 

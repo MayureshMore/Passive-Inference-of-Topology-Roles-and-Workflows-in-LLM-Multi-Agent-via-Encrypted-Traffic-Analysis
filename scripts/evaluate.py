@@ -573,6 +573,66 @@ def _min_class_count(y: list[str]) -> int:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _build_headline(closed: dict, defense_json: Path | None = None) -> dict:
+    """
+    Curated headline view of the closed-world results.
+
+    GBT is the primary model (marginal-best); RF is reported as an EQUIVALENT
+    confirming baseline (overlapping 95 % bootstrap CIs), not a footnote.  Each
+    task carries its correct chance level (role = 3-class = 0.333) and a
+    structural-baseline flag (topology + parallelism are connection-graph signals,
+    not the attack contribution).  Live-defense numbers are folded in if present.
+    """
+    CHANCE = {"workflow": 0.25, "role": 1.0 / 3, "parallelism": 0.5, "topology": 1.0 / 3}
+    STRUCTURAL = {"topology", "parallelism"}
+
+    def _metric(entry):
+        if not entry:
+            return None
+        cv = entry.get("cv", entry)
+        f = cv.get("f1_macro", {}) if isinstance(cv.get("f1_macro"), dict) else {}
+        a = cv.get("accuracy", {}) if isinstance(cv.get("accuracy"), dict) else {}
+        return {
+            "f1_macro": f.get("mean"),
+            "f1_ci": [f.get("ci_lo"), f.get("ci_hi")],
+            "accuracy": a.get("mean"),
+            "acc_ci": [a.get("ci_lo"), a.get("ci_hi")],
+        }
+
+    tasks_out = {}
+    for task, chance in CHANCE.items():
+        gbt = _metric(closed.get(f"{task}/gbt"))
+        rf = _metric(closed.get(f"{task}/rf"))
+        primary = gbt or rf
+        above = None
+        if primary and primary["f1_macro"] is not None:
+            above = primary["f1_macro"] > chance
+        tasks_out[task] = {
+            "chance": chance,
+            "structural_baseline": task in STRUCTURAL,
+            "above_chance": above,
+            "gbt_primary": gbt,
+            "rf_baseline": rf,
+        }
+
+    headline = {
+        "primary_model": "gradient_boosted",
+        "model_note": (
+            "GBT and RF are statistically equivalent (overlapping 95% bootstrap "
+            "CIs); GBT is the marginal-best primary, RF a confirming baseline. "
+            "CNN1D/Transformer are excluded from the headline (data-starved at N=600)."
+        ),
+        "structural_baseline_note": (
+            "topology and parallelism reflect the connection graph (directly "
+            "observable from IP headers); reported for completeness, not the attack."
+        ),
+        "tasks": tasks_out,
+    }
+    if defense_json and Path(defense_json).exists():
+        headline["live_defense"] = json.loads(Path(defense_json).read_text())
+    return headline
+
+
 def main(args: argparse.Namespace) -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / "closed_world").mkdir(parents=True, exist_ok=True)
@@ -628,8 +688,12 @@ def main(args: argparse.Namespace) -> None:
 
     print_results(closed, open_)
 
-    # Save combined summary
-    summary = {"closed_world": closed, "open_world": open_}
+    # Save combined summary — curated GBT-primary headline + full raw results.
+    summary = {
+        "headline": _build_headline(closed, RESULTS_DIR / "defense" / "defense_live.json"),
+        "closed_world": closed,
+        "open_world": open_,
+    }
     summary_path = RESULTS_DIR / "summary.json"
 
     # JSON-serialise numpy types

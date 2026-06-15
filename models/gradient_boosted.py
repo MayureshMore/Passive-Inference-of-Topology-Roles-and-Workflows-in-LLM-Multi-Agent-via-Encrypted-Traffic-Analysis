@@ -127,6 +127,7 @@ class GBTClassifier:
             split_args = (X, y_enc)
 
         fold_accs, fold_f1s, fold_precs, fold_recs = [], [], [], []
+        oof_true, oof_pred = [], []  # pooled out-of-fold preds for bootstrap CI
         cm_sum = np.zeros((len(class_names), len(class_names)), dtype=int)
 
         for train_idx, test_idx in cv.split(*split_args):
@@ -141,11 +142,19 @@ class GBTClassifier:
             fold_f1s.append(f1_score(y_te, y_pred, average="macro", zero_division=0))
             fold_precs.append(precision_score(y_te, y_pred, average="macro", zero_division=0))
             fold_recs.append(recall_score(y_te, y_pred, average="macro", zero_division=0))
+            oof_true.extend(y_te.tolist())
+            oof_pred.extend(list(y_pred))
             cm_sum += confusion_matrix(y_te, y_pred, labels=list(range(len(class_names))))
 
+        # 95 % bootstrap CI on the pooled out-of-fold predictions (modest n).
+        from evaluation.stats import bootstrap_ci
+        ci = bootstrap_ci(oof_true, oof_pred, classes=list(range(len(class_names))))
+
         summary: dict[str, Any] = {
-            "accuracy":         {"mean": float(np.mean(fold_accs)),  "std": float(np.std(fold_accs))},
-            "f1_macro":         {"mean": float(np.mean(fold_f1s)),   "std": float(np.std(fold_f1s))},
+            "accuracy":         {"mean": float(np.mean(fold_accs)),  "std": float(np.std(fold_accs)),
+                                 "ci_lo": ci["accuracy_ci_lo"], "ci_hi": ci["accuracy_ci_hi"]},
+            "f1_macro":         {"mean": float(np.mean(fold_f1s)),   "std": float(np.std(fold_f1s)),
+                                 "ci_lo": ci["macro_f1_ci_lo"], "ci_hi": ci["macro_f1_ci_hi"]},
             "precision_macro":  {"mean": float(np.mean(fold_precs)), "std": float(np.std(fold_precs))},
             "recall_macro":     {"mean": float(np.mean(fold_recs)),  "std": float(np.std(fold_recs))},
             "confusion_matrix": {

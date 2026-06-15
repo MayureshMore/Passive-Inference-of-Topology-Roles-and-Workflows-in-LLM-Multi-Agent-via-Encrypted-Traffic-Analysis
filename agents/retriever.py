@@ -49,7 +49,7 @@ class RetrieverAgent(BaseA2AAgent):
         # ── Phase 2: per-term fact retrieval (3-phase only) — internal ────────
         if n >= 3:
             retrieved = await self.llm_generate(
-                
+
                 f"You are a knowledge retriever. For each search term below, provide "
                 f"2-3 relevant facts from your knowledge. Use 'Term N:' headers.\n\n"
                 f"TERMS:\n{terms}\n\nORIGINAL QUERY: {content[:400]}"

@@ -17,10 +17,14 @@ defended deployment).  We report:
   byte overhead   = mean wire-bytes(defended) / mean wire-bytes(baseline) − 1
   latency overhead= mean duration(defended)  / mean duration(baseline)  − 1
 
-This directly tests the C4 conclusion on real traffic: the size (pad) defense
-is expensive but barely dents the attack, while the rate/count defense — which
-obfuscates burst count and timing, the signals the attack relies on — degrades
-it far more for its cost.
+This directly tests the C4 conclusion on real traffic (N=50/pair).  The finding:
+BOTH defenses are partially effective and expensive — neither is a clean win.
+Size-padding (pad) and rate/count (dummy sub-calls + jittered delegation) drop
+the attack by a similar amount (~0.12 accuracy each) and each leaves roughly
+70 % of the above-chance signal intact, at ~30 % byte overhead.  Real mitigation
+would need far more aggressive packet-count/rate obfuscation than either applies
+here.  (Note: the pad latency_overhead can read negative — that is a measurement
+artifact of the separately-collected padded set, NOT a speedup from padding.)
 
 Usage:
     python scripts/evaluate_defense_live.py \
@@ -57,30 +61,40 @@ def _rf() -> RandomForestClassifier:
     )
 
 
-def baseline_cv(X, y, groups) -> tuple[float, float]:
-    """Group-safe CV accuracy/macro-F1 of the undefended attacker."""
+def baseline_cv(X, y, groups):
+    """Group-safe CV of the undefended attacker.
+
+    Returns (acc, f1, oof_true, oof_pred) — the pooled out-of-fold predictions
+    let the caller attach a bootstrap 95 % CI.
+    """
     y = np.asarray(y)
     n_splits = min(5, len(set(groups)))
     if n_splits < 2:
         clf = _rf().fit(X, y)
         p = clf.predict(X)
-        return accuracy_score(y, p), f1_score(y, p, average="macro")
+        return accuracy_score(y, p), f1_score(y, p, average="macro"), list(y), list(p)
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    accs, f1s = [], []
+    accs, f1s, oof_t, oof_p = [], [], [], []
     for tr, te in skf.split(X, y, groups):
         clf = _rf().fit(X[tr], y[tr])
         p = clf.predict(X[te])
         accs.append(accuracy_score(y[te], p))
         f1s.append(f1_score(y[te], p, average="macro"))
-    return float(np.mean(accs)), float(np.mean(f1s))
+        oof_t.extend(list(y[te]))
+        oof_p.extend(list(p))
+    return float(np.mean(accs)), float(np.mean(f1s)), oof_t, oof_p
 
 
-def transfer_to_defended(Xb, yb, Xd, yd) -> tuple[float, float]:
-    """Train attacker on ALL undefended data, test on defended data."""
+def transfer_to_defended(Xb, yb, Xd, yd):
+    """Train attacker on ALL undefended data, test on defended data.
+
+    Returns (acc, f1, y_true, y_pred) so the caller can bootstrap a 95 % CI on
+    the defended test set.
+    """
     clf = _rf().fit(Xb, np.asarray(yb))
     p = clf.predict(Xd)
     yd = np.asarray(yd)
-    return accuracy_score(yd, p), f1_score(yd, p, average="macro")
+    return accuracy_score(yd, p), f1_score(yd, p, average="macro"), list(yd), list(p)
 
 
 def trace_wire_stats(raw_dir: Path) -> tuple[float, float]:
@@ -105,19 +119,25 @@ def trace_wire_stats(raw_dir: Path) -> tuple[float, float]:
 
 
 def main(args: argparse.Namespace) -> None:
+    from evaluation.stats import bootstrap_ci
+
     Xb, _, yb, gb = load_deployment(Path(args.baseline), TASK)
-    base_acc, base_f1 = baseline_cv(Xb, yb, gb)
+    base_acc, base_f1, b_t, b_p = baseline_cv(Xb, yb, gb)
+    base_ci = bootstrap_ci(b_t, b_p)
     base_bytes, base_dur = trace_wire_stats(Path(args.baseline_raw))
     chance = 1.0 / len(set(yb))
 
-    logger.info("Undefended attacker: acc=%.3f macro_f1=%.3f (chance=%.3f)",
-                base_acc, base_f1, chance)
+    logger.info("Undefended attacker: acc=%.3f [%.3f, %.3f] macro_f1=%.3f (chance=%.3f)",
+                base_acc, base_ci["accuracy_ci_lo"], base_ci["accuracy_ci_hi"], base_f1, chance)
 
     results: dict = {
         "task": TASK,
         "chance": chance,
         "none": {
-            "accuracy": base_acc, "macro_f1": base_f1,
+            "accuracy": base_acc,
+            "accuracy_ci_lo": base_ci["accuracy_ci_lo"],
+            "accuracy_ci_hi": base_ci["accuracy_ci_hi"],
+            "macro_f1": base_f1,
             "byte_overhead": 0.0, "latency_overhead": 0.0,
             "mean_trace_bytes": base_bytes, "mean_trace_dur_s": base_dur,
         },
@@ -131,13 +151,17 @@ def main(args: argparse.Namespace) -> None:
             logger.warning("skip %s — no processed features at %s", name, proc)
             continue
         Xd, _, yd, _ = load_deployment(Path(proc), TASK)
-        acc, f1 = transfer_to_defended(Xb, yb, Xd, yd)
+        acc, f1, yt, yp = transfer_to_defended(Xb, yb, Xd, yd)
+        ci = bootstrap_ci(yt, yp)
         d_bytes, d_dur = trace_wire_stats(Path(raw)) if raw else (0.0, 0.0)
         byte_ohd = (d_bytes / base_bytes - 1.0) if base_bytes else 0.0
         lat_ohd = (d_dur / base_dur - 1.0) if base_dur else 0.0
         retention = (acc - chance) / (base_acc - chance) if base_acc > chance else 0.0
         results[name] = {
-            "accuracy": acc, "macro_f1": f1,
+            "accuracy": acc,
+            "accuracy_ci_lo": ci["accuracy_ci_lo"],
+            "accuracy_ci_hi": ci["accuracy_ci_hi"],
+            "macro_f1": f1,
             "acc_drop": base_acc - acc,
             "above_chance_retention": retention,
             "byte_overhead": byte_ohd,
@@ -145,10 +169,10 @@ def main(args: argparse.Namespace) -> None:
             "mean_trace_bytes": d_bytes, "mean_trace_dur_s": d_dur,
         }
         logger.info(
-            "defense=%-4s  acc=%.3f (drop %.3f, retains %.0f%% of signal)  "
+            "defense=%-4s  acc=%.3f [%.3f, %.3f] (drop %.3f, retains %.0f%% of signal)  "
             "byte_ohd=%+.0f%%  latency_ohd=%+.0f%%",
-            name, acc, base_acc - acc, 100 * retention,
-            100 * byte_ohd, 100 * lat_ohd,
+            name, acc, ci["accuracy_ci_lo"], ci["accuracy_ci_hi"], base_acc - acc,
+            100 * retention, 100 * byte_ohd, 100 * lat_ohd,
         )
 
     out = Path("data/results/defense/defense_live.json")
@@ -159,20 +183,27 @@ def main(args: argparse.Namespace) -> None:
     print("\n" + "=" * 72)
     print("  LIVE C4 DEFENSE EVALUATION (measured on real defended captures)")
     print("=" * 72)
-    print(f"  {'defense':<8}{'attack acc':>12}{'acc drop':>11}"
-          f"{'byte ohd':>11}{'latency ohd':>13}")
-    print("  " + "-" * 53)
+    print(f"  {'defense':<8}{'attack acc [95% CI]':>24}{'drop':>8}"
+          f"{'signal kept':>13}{'byte ohd':>11}{'lat ohd':>10}")
+    print("  " + "-" * 74)
     for name in ("none", "rate", "pad"):
         if name not in results:
             continue
         r = results[name]
         drop = r.get("acc_drop", 0.0)
-        print(f"  {name:<8}{r['accuracy']:>12.3f}{drop:>11.3f}"
-              f"{100*r['byte_overhead']:>10.0f}%{100*r['latency_overhead']:>12.0f}%")
-    print("  " + "-" * 53)
-    print("  CONCLUSION: the size (pad) defense costs bytes but barely dents the")
-    print("  attack; the rate/count defense degrades it more by obfuscating burst")
-    print("  count and timing — the signals the attack actually relies on.")
+        ret = r.get("above_chance_retention")
+        ci = f"[{r.get('accuracy_ci_lo',0):.2f},{r.get('accuracy_ci_hi',0):.2f}]"
+        ret_s = f"{100*ret:.0f}%" if ret is not None else "—"
+        print(f"  {name:<8}{r['accuracy']:>10.3f} {ci:>13}{drop:>8.3f}{ret_s:>13}"
+              f"{100*r['byte_overhead']:>10.0f}%{100*r['latency_overhead']:>9.0f}%")
+    print("  " + "-" * 74)
+    print("  CONCLUSION (N=50/pair): both defenses are partially effective and")
+    print("  expensive — neither is a clean win.  Size-padding (pad) and rate/count")
+    print("  drop the attack by a similar amount (~0.12 acc each) and each leaves")
+    print("  ~70% of the above-chance signal intact, at ~30% byte overhead.  Real")
+    print("  mitigation needs far more aggressive packet-count/rate obfuscation.")
+    print("  (pad's negative latency overhead is a measurement artifact of the")
+    print("   separately-collected padded set, not a speedup from padding.)")
     print("=" * 72)
     print(f"\nWrote {out}")
 

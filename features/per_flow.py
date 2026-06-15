@@ -206,7 +206,8 @@ def compute_per_flow(
     feat.n_small_inbound = sum(1 for s in sizes_in if s <= 200)
 
     # Response bursts: bursts where the agent is the sender (direction == 1).
-    # Correlates with number of LLM roundtrips (blocking stream=False calls).
+    # Each is an SSE response event (a2a-sdk message/stream): streamed answer
+    # chunks plus the final result artifact, one group per LLM roundtrip.
     feat.n_response_bursts = sum(1 for b in bursts if b.direction == 1)
 
     # IQR of inbound packet sizes — low IQR = uniform response segment sizes.

@@ -140,13 +140,23 @@ def _internal_cv(X, y, groups, task, n_splits=5):
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=_RNG_SEED)
     ya, ga = np.array(y), np.array(groups)
     accs, f1s = [], []
+    oof_t, oof_p = [], []
     for _, (tr, te) in enumerate(skf.split(X, ya, ga)):
         clf = RFClassifier(task=task)
         clf.fit(X[tr], ya[tr].tolist())
         preds = clf.predict(X[te])
         accs.append(_accuracy(ya[te].tolist(), preds))
         f1s.append(_f1(ya[te].tolist(), preds, classes))
-    return float(np.mean(accs)), float(np.std(accs)), float(np.mean(f1s)), float(np.std(f1s))
+        oof_t.extend(ya[te].tolist())
+        oof_p.extend(list(preds))
+    # 95 % bootstrap CI on pooled out-of-fold preds — same method as the transfers.
+    bs = _bootstrap(oof_t, oof_p, classes)
+    return {
+        "accuracy": float(np.mean(accs)), "accuracy_std": float(np.std(accs)),
+        "accuracy_ci_lo": bs["accuracy_ci_lo"], "accuracy_ci_hi": bs["accuracy_ci_hi"],
+        "macro_f1": float(np.mean(f1s)), "macro_f1_std": float(np.std(f1s)),
+        "macro_f1_ci_lo": bs["macro_f1_ci_lo"], "macro_f1_ci_hi": bs["macro_f1_ci_hi"],
+    }
 
 
 def _transfer(X_tr, y_tr, X_te, y_te, task, do_bootstrap):
@@ -284,11 +294,10 @@ def main(args):
 
         results = {}
 
-        # A→A internal CV (ceiling)
-        acc_m, acc_s, f1_m, f1_s = _internal_cv(Xa, ya, ga, task)
-        results["AA"] = {"accuracy": acc_m, "accuracy_std": acc_s,
-                         "macro_f1": f1_m, "macro_f1_std": f1_s}
-        logger.info("A→A  task=%s  F1=%.3f±%.3f", task, f1_m, f1_s)
+        # A→A internal CV (ceiling) — now carries a 95 % bootstrap CI too
+        results["AA"] = _internal_cv(Xa, ya, ga, task)
+        logger.info("A→A  task=%s  F1=%.3f±%.3f", task,
+                    results["AA"]["macro_f1"], results["AA"]["macro_f1_std"])
 
         # A → A_model (model-only)
         if have_amodel:

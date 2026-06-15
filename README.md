@@ -255,8 +255,14 @@ Evaluation runs **closed-world** (held-out traces from seen classes) and **open-
 
 ### Defense Evaluation
 
+Measured on **real defended captures** (agents run with the defense active, traffic
+captured on the wire) — not a feature-space simulation:
+
 ```bash
-python scripts/evaluate_defense.py
+python scripts/evaluate_defense_live.py \
+  --baseline data/processed              --baseline-raw data/raw \
+  --rate     data/processed_defense_rate --rate-raw     data/raw_defense_rate \
+  --pad      data/processed_defense_pad  --pad-raw      data/raw_defense_pad
 ```
 
 ---
