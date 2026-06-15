@@ -10,14 +10,23 @@ the WAN interface, giving genuine WAN traffic for the C5 robustness experiment.
 Both sites run their own local Ollama, so only A2A flows cross the WAN (the
 inference-latency confound is avoided — proposal §8.1).
 
+Run ONE topology per invocation: the remote specialists are wired for a single
+topology at startup, so --topology here MUST match the --topology serve_agents
+was started with.  Repeat for star / chain / mesh (restart serve_agents each
+time), all writing to the same --out dir.
+
+num_predict MUST match the local collection (256) — otherwise WAN responses
+differ in token count and the cross-network comparison measures token length,
+not the network.  Both defaults are 256.
+
 Prereqs:
   1. On the India host:  venv/bin/python scripts/serve_agents.py --topology star --deployment a
   2. Confirm reachability: curl http://<INDIA_IP>:8001/.well-known/agent-card.json
 
-Usage (on the US host):
+Usage (on the US host) — once per topology, matching the remote:
     sudo venv/bin/python scripts/collect_wan.py \
         --remote-host 203.0.113.7 --iface en0 \
-        --deployment a --n 30 --out data/raw_wan
+        --deployment a --topology star --n 50 --num-predict 256 --out data/raw_wan
 
 Then extract + evaluate:
     venv/bin/python scripts/extract_features.py --raw data/raw_wan --out data/processed_wan --scapy
@@ -90,7 +99,8 @@ async def main(args: argparse.Namespace) -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    topologies = [args.topology] if args.topology else ["star", "chain", "mesh"]
+    # One topology per run — must match how serve_agents was started remotely.
+    topologies = [args.topology]
     workflows = [args.workflow] if args.workflow else [wf.value for wf in WorkflowClass]
 
     # Confirm the remote specialists are up before capturing.
@@ -152,11 +162,13 @@ def _parse() -> argparse.Namespace:
     p.add_argument("--remote-host", required=True, help="India host IP/hostname running serve_agents.py")
     p.add_argument("--iface", default="en0", help="WAN capture interface (default en0; do NOT use lo0)")
     p.add_argument("--deployment", choices=["a", "b"], default="a")
-    p.add_argument("--topology", choices=["star", "chain", "mesh"])
+    p.add_argument("--topology", required=True, choices=["star", "chain", "mesh"],
+                   help="MUST match the --topology serve_agents was started with on the remote host")
     p.add_argument("--workflow", choices=[wf.value for wf in WorkflowClass])
-    p.add_argument("--n", type=int, default=30, help="Traces per (workflow, topology) pair")
+    p.add_argument("--n", type=int, default=50, help="Traces per (workflow, topology) pair (match local: 50)")
     p.add_argument("--model", default=None)
-    p.add_argument("--num-predict", type=int, default=128, dest="num_predict")
+    p.add_argument("--num-predict", type=int, default=256, dest="num_predict",
+                   help="Ollama output-token cap — MUST match the local collection (256) for a valid comparison")
     p.add_argument("--out", default="data/raw_wan")
     return p.parse_args()
 

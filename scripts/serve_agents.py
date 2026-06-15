@@ -106,11 +106,12 @@ async def main(args: argparse.Namespace) -> None:
 
 def _parse() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="C5 WAN harness — serve specialist agents (remote/India host)")
-    p.add_argument("--topology", choices=["star", "chain", "mesh"], default="star")
+    p.add_argument("--topology", required=True, choices=["star", "chain", "mesh"],
+                   help="Wire specialists for this topology — MUST match collect_wan --topology on the US host")
     p.add_argument("--deployment", choices=["a", "b"], default="a")
     p.add_argument("--model", default=None, help="Override Ollama model (default per deployment)")
-    p.add_argument("--num-predict", type=int, default=128, dest="num_predict",
-                   help="Cap Ollama output tokens (0 = unlimited)")
+    p.add_argument("--num-predict", type=int, default=256, dest="num_predict",
+                   help="Cap Ollama output tokens (match the local collection: 256; 0 = unlimited)")
     p.add_argument("--defense", default="none", choices=["none", "pad", "rate", "both"])
     return p.parse_args()
 

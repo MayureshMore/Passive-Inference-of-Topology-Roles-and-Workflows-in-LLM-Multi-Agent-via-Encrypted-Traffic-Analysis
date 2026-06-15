@@ -186,8 +186,16 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         evaluator = ClosedWorldEval(X, y, classes, task=task, n_splits=n_splits,
                                     groups=groups)
 
+        # Ablation runs reuse the same task name, so writing them to disk would
+        # clobber the main closed_world_{model}_{task}.json with the ablated
+        # value.  Persist per-task files ONLY for the main (non-ablated) run;
+        # ablation results are still returned and end up in summary.json under
+        # their __ablated / __size_ablated keys.
+        is_ablation = ablate_structural or ablate_parallelism or ablate_size
+        disk_dir = None if is_ablation else out_dir
+
         logger.info("--- Closed-world RF  [%s] (group-safe CV) ---", task)
-        rf_result = evaluator.run_rf(out_dir=out_dir)
+        rf_result = evaluator.run_rf(out_dir=disk_dir)
         all_results[f"{task}/rf"] = rf_result
 
         if rf_only:
@@ -196,7 +204,7 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
             # ── GBT: one-line confirmation of RF result ──────────────────────
             logger.info("--- Closed-world GBT [%s] (confirmation) ---", task)
             try:
-                gbt_result = evaluator.run_gbt(out_dir=out_dir)
+                gbt_result = evaluator.run_gbt(out_dir=disk_dir)
                 all_results[f"{task}/gbt"] = gbt_result
             except Exception as exc:
                 logger.warning("GBT failed for task=%s: %s", task, exc)
