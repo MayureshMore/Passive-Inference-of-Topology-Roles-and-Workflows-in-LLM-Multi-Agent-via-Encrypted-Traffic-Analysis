@@ -1,0 +1,27 @@
+{
+  "none": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "overhead_bytes": 0.0
+  },
+  "padding": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "overhead_bytes": 1.1259206533432007
+  },
+  "timing": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "overhead_bytes": 0.0
+  },
+  "dummy": {
+    "accuracy": 0.9983333333333334,
+    "macro_f1": 0.9983539094650205,
+    "overhead_bytes": 0.0
+  },
+  "combined": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "overhead_bytes": 1.1259105205535889
+  }
+}

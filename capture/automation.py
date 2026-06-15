@@ -60,6 +60,7 @@ class TraceCollector:
         agent_endpoints: dict[str, str],
         topology_edges: list[list[str]],
         output_dir: Path,
+        deployment: str = "a",
     ) -> None:
         self.orchestrator_fn = orchestrator_fn
         self.recorder = recorder
@@ -69,6 +70,7 @@ class TraceCollector:
         self.topology_edges = topology_edges
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.deployment = deployment
 
     async def collect(
         self,
@@ -99,6 +101,7 @@ class TraceCollector:
                 input_prompt=prompt,
                 start_ts=time.time(),
                 pcap_path=str(self.output_dir / f"{run_id}.pcap"),
+                deployment=self.deployment,
             )
 
             try:

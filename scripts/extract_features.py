@@ -59,10 +59,29 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
     from features.per_flow import compute_per_flow
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    extractor = FeatureExtractor(use_scapy=use_scapy)
 
     pcap_files = sorted(raw_dir.glob("*.pcap"))
     logger.info("Found %d pcap files in %s", len(pcap_files), raw_dir)
+
+    # Auto-detect agent ports from sidecar files so deployment-B pcaps (ports
+    # 8010-8013) are filtered correctly without any CLI flag change.
+    agent_ports: set[int] = set()
+    for pcap_path in pcap_files:
+        label_path = pcap_path.with_suffix(".json")
+        if label_path.exists():
+            try:
+                sc = json.loads(label_path.read_text())
+                for addr in sc.get("agent_endpoints", {}).values():
+                    port_str = addr.rsplit(":", 1)[-1]
+                    if port_str.isdigit():
+                        agent_ports.add(int(port_str))
+            except Exception:
+                pass
+    if not agent_ports:
+        agent_ports = {8000, 8001, 8002, 8003}
+    logger.info("Agent ports detected from sidecars: %s", sorted(agent_ports))
+
+    extractor = FeatureExtractor(agent_ports=agent_ports, use_scapy=use_scapy)
 
     labels_map: dict[str, dict] = {}
     n_ok = n_fail = n_role = 0
@@ -98,6 +117,7 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
             "topology": run.topology.value,
             "parallelism": parallelism,
             "prompt_group": _prompt_group(prompt),
+            "deployment": run.deployment,
         }
         n_ok += 1
 
@@ -174,6 +194,7 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
                 "topology": run.topology.value,
                 "parallelism": parallelism,
                 "prompt_group": _prompt_group(prompt),
+                "deployment": run.deployment,
             }
             n_role += 1
 

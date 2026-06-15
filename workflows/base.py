@@ -43,6 +43,9 @@ class WorkflowRun(BaseModel):
     pcap_path: str = ""
     success: bool = False
     error: str = ""
+    # Which agent implementation produced this trace.  Default "a" keeps all
+    # existing sidecars (which lack this field) backward-compatible.
+    deployment: str = "a"
 
     def duration_s(self) -> float:
         return self.end_ts - self.start_ts

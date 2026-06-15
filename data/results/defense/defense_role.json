@@ -1,0 +1,27 @@
+{
+  "none": {
+    "accuracy": 0.9866379609695117,
+    "macro_f1": 0.9866277637103085,
+    "overhead_bytes": 0.0
+  },
+  "padding": {
+    "accuracy": 0.9826978725374447,
+    "macro_f1": 0.9827073127884809,
+    "overhead_bytes": 2.013657569885254
+  },
+  "timing": {
+    "accuracy": 0.9788040836169178,
+    "macro_f1": 0.9787954225916234,
+    "overhead_bytes": 0.0
+  },
+  "dummy": {
+    "accuracy": 0.9821561682524249,
+    "macro_f1": 0.982154885595456,
+    "overhead_bytes": 0.0
+  },
+  "combined": {
+    "accuracy": 0.9648725605944858,
+    "macro_f1": 0.9648800229320879,
+    "overhead_bytes": 2.013659954071045
+  }
+}

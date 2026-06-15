@@ -1,0 +1,138 @@
+{
+  "model": "random_forest",
+  "task": "workflow",
+  "cv": {
+    "accuracy": {
+      "mean": 0.47833333333333333,
+      "std": 0.02211083193570265
+    },
+    "f1_macro": {
+      "mean": 0.47746157862888516,
+      "std": 0.024912217663897906
+    },
+    "precision_macro": {
+      "mean": 0.48121780193850644,
+      "std": 0.026935871452307178
+    },
+    "recall_macro": {
+      "mean": 0.47833333333333333,
+      "std": 0.022110831935702673
+    },
+    "confusion_matrix": {
+      "labels": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ],
+      "matrix": [
+        [
+          56,
+          32,
+          29,
+          33
+        ],
+        [
+          28,
+          82,
+          9,
+          31
+        ],
+        [
+          29,
+          12,
+          78,
+          31
+        ],
+        [
+          27,
+          23,
+          29,
+          71
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.mean_burst_rate",
+      0.040495137887472034
+    ],
+    [
+      "pf_top1.mean_ibg",
+      0.037137875929389406
+    ],
+    [
+      "sys.total_duration_s",
+      0.03629611862082894
+    ],
+    [
+      "pf_top1.std_iat",
+      0.036217956188633986
+    ],
+    [
+      "pf_top1.duration_s",
+      0.03507274307555805
+    ],
+    [
+      "pf_top1.mean_iat",
+      0.03458475741455378
+    ],
+    [
+      "sys.flow_end_spread",
+      0.03450106764587202
+    ],
+    [
+      "pf_top2.mean_ibg",
+      0.034175807308515396
+    ],
+    [
+      "sys.flow_start_spread",
+      0.03285102264952667
+    ],
+    [
+      "pf_top2.duration_s",
+      0.030970215404382585
+    ],
+    [
+      "sys.pf_mean_mean_ibg",
+      0.030575749336276322
+    ],
+    [
+      "pf_mean.std_iat",
+      0.03026303771501156
+    ],
+    [
+      "pf_top2.std_iat",
+      0.030223739537409314
+    ],
+    [
+      "pf_top2.mean_iat",
+      0.02995349258555753
+    ],
+    [
+      "pf_top1.mean_burst_dur",
+      0.02968192558285665
+    ],
+    [
+      "pf_mean.mean_ibg",
+      0.027952830671538063
+    ],
+    [
+      "pf_top2.mean_burst_dur",
+      0.027935158614523718
+    ],
+    [
+      "sys.pf_mean_std_iat",
+      0.027759202575167237
+    ],
+    [
+      "sys.pf_mean_mean_iat",
+      0.027087006419410916
+    ],
+    [
+      "sys.pf_mean_duration_s",
+      0.02703569820910514
+    ]
+  ]
+}

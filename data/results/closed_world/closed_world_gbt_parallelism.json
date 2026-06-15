@@ -1,0 +1,120 @@
+{
+  "model": "gradient_boosted",
+  "task": "parallelism",
+  "cv": {
+    "accuracy": {
+      "mean": 0.9899159663865547,
+      "std": 0.016294722209802773
+    },
+    "f1_macro": {
+      "mean": 0.9887709365416372,
+      "std": 0.01814496824825174
+    },
+    "precision_macro": {
+      "mean": 0.9876797998749218,
+      "std": 0.019134916730219515
+    },
+    "recall_macro": {
+      "mean": 0.9899367088607594,
+      "std": 0.017138230809964773
+    },
+    "confusion_matrix": {
+      "labels": [
+        "parallel",
+        "sequential"
+      ],
+      "matrix": [
+        [
+          396,
+          4
+        ],
+        [
+          2,
+          198
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.max_concurrent_flows",
+      0.41966666666666663
+    ],
+    [
+      "sys.total_packets",
+      0.007333333333333347
+    ],
+    [
+      "pf_mean.n_pkts_out",
+      0.0
+    ],
+    [
+      "pf_mean.n_pkts_in",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_out",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_in",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.duration_s",
+      0.0
+    ],
+    [
+      "pf_mean.mean_iat",
+      0.0
+    ],
+    [
+      "pf_mean.std_iat",
+      0.0
+    ],
+    [
+      "pf_mean.n_bursts",
+      0.0
+    ],
+    [
+      "pf_mean.mean_burst_bytes",
+      0.0
+    ],
+    [
+      "pf_mean.std_burst_bytes",
+      0.0
+    ]
+  ]
+}

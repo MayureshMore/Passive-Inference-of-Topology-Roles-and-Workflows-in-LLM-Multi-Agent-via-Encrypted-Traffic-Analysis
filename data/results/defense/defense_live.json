@@ -1,0 +1,32 @@
+{
+  "task": "workflow",
+  "chance": 0.25,
+  "none": {
+    "accuracy": 0.6566666666666666,
+    "macro_f1": 0.6562427793284122,
+    "byte_overhead": 0.0,
+    "latency_overhead": 0.0,
+    "mean_trace_bytes": 137429.87166666667,
+    "mean_trace_dur_s": 19.904822296301525
+  },
+  "rate": {
+    "accuracy": 0.53,
+    "macro_f1": 0.5311526092089043,
+    "acc_drop": 0.1266666666666666,
+    "above_chance_retention": 0.6885245901639345,
+    "byte_overhead": 0.3493885360173332,
+    "latency_overhead": 0.11869760158282183,
+    "mean_trace_bytes": 185446.29333333333,
+    "mean_trace_dur_s": 22.267476962804793
+  },
+  "pad": {
+    "accuracy": 0.54,
+    "macro_f1": 0.5443335284832681,
+    "acc_drop": 0.11666666666666659,
+    "above_chance_retention": 0.7131147540983608,
+    "byte_overhead": 0.3081819681536242,
+    "latency_overhead": -0.5397941376305344,
+    "mean_trace_bytes": 179783.28,
+    "mean_trace_dur_s": 9.16031591018041
+  }
+}

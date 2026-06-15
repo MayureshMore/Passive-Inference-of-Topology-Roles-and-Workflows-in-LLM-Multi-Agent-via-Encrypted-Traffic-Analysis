@@ -1,0 +1,128 @@
+{
+  "model": "random_forest",
+  "task": "topology",
+  "cv": {
+    "accuracy": {
+      "mean": 0.9832602890113507,
+      "std": 0.00934778361494059
+    },
+    "f1_macro": {
+      "mean": 0.9833307277823762,
+      "std": 0.00912823460693547
+    },
+    "precision_macro": {
+      "mean": 0.9835733643050716,
+      "std": 0.009207238070562574
+    },
+    "recall_macro": {
+      "mean": 0.9833333333333334,
+      "std": 0.009128709291752777
+    },
+    "confusion_matrix": {
+      "labels": [
+        "chain",
+        "mesh",
+        "star"
+      ],
+      "matrix": [
+        [
+          196,
+          4,
+          0
+        ],
+        [
+          6,
+          194,
+          0
+        ],
+        [
+          0,
+          0,
+          200
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.max_concurrent_flows",
+      0.08497434786450439
+    ],
+    [
+      "sys.total_bursts",
+      0.06408316647606717
+    ],
+    [
+      "sys.total_packets",
+      0.06290900905847763
+    ],
+    [
+      "sys.n_flows",
+      0.053804366147178116
+    ],
+    [
+      "sys.n_response_heavy_flows",
+      0.053013570968972974
+    ],
+    [
+      "pf_top1.std_iat",
+      0.02493515848691158
+    ],
+    [
+      "sys.pf_std_n_bursts",
+      0.024008100082241385
+    ],
+    [
+      "pf_top1.duration_s",
+      0.02329842469613164
+    ],
+    [
+      "pf_top2.duration_s",
+      0.02177957989248492
+    ],
+    [
+      "pf_top2.n_response_bursts",
+      0.02167451840803328
+    ],
+    [
+      "sys.pf_mean_n_response_bursts",
+      0.020699133567882878
+    ],
+    [
+      "pf_mean.n_response_bursts",
+      0.020542682294499282
+    ],
+    [
+      "sys.pf_std_duration_s",
+      0.02033055042372785
+    ],
+    [
+      "sys.pf_std_mean_burst_dur",
+      0.020226025684775533
+    ],
+    [
+      "pf_top2.n_pkts_out",
+      0.019941458636230473
+    ],
+    [
+      "pf_top2.n_pkts_in",
+      0.019930386786958007
+    ],
+    [
+      "pf_top2.mean_burst_dur",
+      0.019533091107332576
+    ],
+    [
+      "pf_top1.n_response_bursts",
+      0.01879180811360076
+    ],
+    [
+      "pf_mean.duration_s",
+      0.018019455872491152
+    ],
+    [
+      "pf_mean.n_pkts_out",
+      0.01722959520486547
+    ]
+  ]
+}

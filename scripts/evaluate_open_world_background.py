@@ -271,7 +271,7 @@ def main(args: argparse.Namespace) -> None:
             bg_dir=Path(args.bg_processed),
             results_dir=RESULTS_DIR,
         )
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         logger.error("%s", exc)
         sys.exit(1)
 

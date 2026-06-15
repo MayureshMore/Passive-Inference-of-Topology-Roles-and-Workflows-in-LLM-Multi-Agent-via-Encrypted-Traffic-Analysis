@@ -24,19 +24,20 @@ env/
 .env.*
 *.env
 
-# ── Data directories (large files, never commit raw pcaps or models) ─────────
-data/raw/
-data/processed/
-data/models/
-data/traces/
-data/results/
+# ── Data directories (large files, never commit raw pcaps, npz, or models) ───
+# Ignore EVERYTHING under data/ (raw_*, processed_*, models, traces, defended,
+# background, *_sdk variants, ...) so captures never reach the public repo.
+# The ONLY exception is data/results/ — small JSON result files kept as
+# reviewable outputs.  (Previously only data/raw|processed|models|traces were
+# listed, so the *_sdk / raw_b / background dirs leaked 16k+ files into git.)
+data/*
+!data/results/
 
-# Allow .gitkeep placeholders so directories are tracked
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/models/.gitkeep
-!data/traces/.gitkeep
-!data/results/.gitkeep
+# ── Pre-migration code backup (snapshot, not source) ─────────────────────────
+.pre_sdk_backup/
+
+# ── graphify outputs (regenerable via /graphify; keep repo clean) ────────────
+graphify-out/
 
 # ── Packet capture files ──────────────────────────────────────────────────────
 *.pcap

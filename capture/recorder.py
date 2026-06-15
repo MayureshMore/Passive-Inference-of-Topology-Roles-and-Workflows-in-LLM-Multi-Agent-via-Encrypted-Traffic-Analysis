@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 _SNAPLEN = 96
 _TCPDUMP_BASE = ["tcpdump", "-n", "-s", str(_SNAPLEN), "-w"]
 
+# A pcap file with only the 24-byte global header (no packet records) means the
+# capture started but recorded nothing — i.e. it failed.  Anything > this has at
+# least one packet.
+_PCAP_HEADER_BYTES = 24
+
 
 @dataclass
 class CaptureSession:
@@ -59,6 +64,19 @@ class CaptureSession:
         logger.info(
             "capture stopped after %.1fs → %s", elapsed, self.pcap_path
         )
+
+    def alive(self) -> bool:
+        """True if the tcpdump process is still running."""
+        return self._proc is not None and self._proc.poll() is None
+
+    def stderr_tail(self) -> str:
+        """Best-effort read of tcpdump's stderr (call only once it has exited)."""
+        if self._proc and self._proc.stderr:
+            try:
+                return self._proc.stderr.read().decode("utf-8", "replace").strip()
+            except Exception:
+                return ""
+        return ""
 
     def __enter__(self):
         self.start()
@@ -121,8 +139,27 @@ class PacketRecorder:
         session.start()
         # Brief delay so tcpdump is fully up before traffic flows
         await asyncio.sleep(0.3)
+        # Guard 1 — capture must actually start.  If tcpdump exits immediately
+        # (e.g. macOS BPF devices exhausted by leaked captures), fail loudly
+        # BEFORE running the workflow rather than recording a "successful" run
+        # with no packets (a ghost trace).
+        if not session.alive():
+            err = session.stderr_tail()
+            raise RuntimeError(
+                f"tcpdump failed to start for {run_id}: "
+                f"{err or 'process exited immediately (BPF device exhausted?)'}"
+            )
         try:
             await coro
         finally:
             session.stop()
+        # Guard 2 — capture must have recorded packets.  A missing or
+        # header-only pcap means the workflow ran but nothing was captured.
+        p = session.pcap_path
+        size = p.stat().st_size if p.exists() else -1
+        if size <= _PCAP_HEADER_BYTES:
+            raise RuntimeError(
+                f"empty capture for {run_id}: "
+                f"{'pcap missing' if size < 0 else f'header-only ({size} bytes)'}"
+            )
         return session.pcap_path

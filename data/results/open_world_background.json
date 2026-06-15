@@ -1,0 +1,39 @@
+{
+  "threshold": 0.373937691718583,
+  "known_val_retention": 0.9466666666666667,
+  "known_val_fpr": 0.05333333333333334,
+  "overall_background_rejection": 0.39666666666666667,
+  "precision_at_1pct_base_rate": 0.015601823875185411,
+  "per_category": {
+    "bg_api_rest": {
+      "n": 50,
+      "rejection_rate": 0.0,
+      "type": "soft"
+    },
+    "bg_file_download": {
+      "n": 50,
+      "rejection_rate": 1.0,
+      "type": "soft"
+    },
+    "bg_jsonrpc": {
+      "n": 50,
+      "rejection_rate": 0.0,
+      "type": "hard"
+    },
+    "bg_llm_direct": {
+      "n": 50,
+      "rejection_rate": 0.9,
+      "type": "hard"
+    },
+    "bg_multi_rest": {
+      "n": 50,
+      "rejection_rate": 0.0,
+      "type": "hard"
+    },
+    "bg_web_browse": {
+      "n": 50,
+      "rejection_rate": 0.48,
+      "type": "soft"
+    }
+  }
+}

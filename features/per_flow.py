@@ -52,12 +52,16 @@ class PerFlowFeatures:
     # Cumulative bytes at fixed time quantiles (10 points)
     cumulative_bytes: list[float] = None  # type: ignore[assignment]
 
-    # Asymmetry / SSE-proxy features (indices 30–34)
+    # Asymmetry / SSE response-segmentation features (indices 30–34).
+    # Agents stream answers as Server-Sent Events (a2a-sdk message/stream), so
+    # each response-direction packet on the wire is an SSE event.  These features
+    # summarise that SSE-chunk structure: response event counts and inbound size
+    # spread per flow.
     bytes_out_ratio: float = 0.5        # bytes_out / total_bytes — role discriminator
     pkt_size_asymmetry: float = 0.5     # mean_sz_out / (mean_sz_out + mean_sz_in)
-    n_small_inbound: int = 0            # inbound pkts ≤200 B — SSE chunk proxy
-    n_response_bursts: int = 0          # bursts in response direction — streaming depth
-    iqr_size_in: float = 0.0            # p75 - p25 of inbound sizes — SSE regularity
+    n_small_inbound: int = 0            # inbound pkts ≤200 B — small SSE chunk count
+    n_response_bursts: int = 0          # response-direction bursts — SSE response events
+    iqr_size_in: float = 0.0            # p75 - p25 of inbound sizes — SSE chunk-size spread
 
     def __post_init__(self):
         if self.cumulative_bytes is None:
@@ -197,14 +201,15 @@ def compute_per_flow(
     sz_in = feat.mean_size_in
     feat.pkt_size_asymmetry = sz_out / (sz_out + sz_in + 1e-8)
 
-    # Small inbound packets (≤200 B) as a proxy for SSE chunks:
-    # each SSE data line arrives as its own small TCP segment
+    # Small inbound packets (≤200 B): proxy for short response segments
+    # (TCP ACKs, keepalives, small JSON-RPC replies from Ollama).
     feat.n_small_inbound = sum(1 for s in sizes_in if s <= 200)
 
-    # Response bursts: bursts where the agent is the sender (direction == 1)
+    # Response bursts: bursts where the agent is the sender (direction == 1).
+    # Correlates with number of LLM roundtrips (blocking stream=False calls).
     feat.n_response_bursts = sum(1 for b in bursts if b.direction == 1)
 
-    # IQR of inbound packet sizes — low IQR = uniform SSE chunk sizes
+    # IQR of inbound packet sizes — low IQR = uniform response segment sizes.
     feat.iqr_size_in = feat.p75_size_in - feat.p25_size_in
 
     return feat

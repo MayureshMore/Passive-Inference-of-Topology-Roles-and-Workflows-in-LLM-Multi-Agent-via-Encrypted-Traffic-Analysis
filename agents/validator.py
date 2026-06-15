@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import logging
 
-from .base import AgentConfig, AgentRole, BaseA2AAgent
+from .base import AgentConfig, AgentRole, BaseA2AAgent, EmitFn
 
 logger = logging.getLogger(__name__)
-
-_MAX_REVIEW_ROUNDS = 2
 
 
 class ValidatorAgent(BaseA2AAgent):
@@ -21,13 +19,11 @@ class ValidatorAgent(BaseA2AAgent):
         config.role = AgentRole.VALIDATOR
         super().__init__(config)
 
-    async def handle_task(self, task_id: str, content: str) -> str:
+    async def handle_task(
+        self, task_id: str, content: str, emit: EmitFn | None = None
+    ) -> str:
         logger.info("[validator] received task %s", task_id)
 
-        # Short structured verdict format reflects real QA-gate patterns:
-        # CI/CD quality gates, LGTM reviews, and automated compliance checks
-        # all return structured verdicts (pass/fail + score + one-line reason).
-        # This is representative behaviour, not engineered for fingerprinting.
         prompt_review = (
             f"You are a strict quality validator. Reply in EXACTLY this format "
             f"(no other text):\n"
@@ -36,11 +32,17 @@ class ValidatorAgent(BaseA2AAgent):
             f"REASON: one sentence max 20 words\n\n"
             f"CONTENT:\n{content[:600]}"
         )
+
+        # Validator is terminal in all configured topologies (no downstream),
+        # so its verdict streams back as SSE.  The FAIL-retry branch below only
+        # runs if a downstream agent is configured.
+        if not self.config.downstream_agents:
+            return await self.llm_stream(prompt_review, emit)
+
         review = await self.llm_generate(prompt_review)
         logger.debug("[validator] verdict for %s:\n%s", task_id, review)
 
-        # If FAIL and there is an upstream executor to retry, send feedback back
-        if "FAIL" in review.upper() and self.config.downstream_agents:
+        if "FAIL" in review.upper():
             retry_url = self.config.downstream_agents[0]
             retry_result = await self.send_task(
                 target_url=retry_url,
@@ -51,12 +53,11 @@ class ValidatorAgent(BaseA2AAgent):
                     f"Original content:\n{content}"
                 ),
             )
-            # Re-validate the revision once
             prompt_recheck = (
                 f"You are a strict quality validator. This is a revised submission. "
                 f"Review it and provide VERDICT, SCORE, ISSUES, FEEDBACK.\n\n"
                 f"REVISED CONTENT:\n{retry_result.output}"
             )
-            review = await self.llm_generate(prompt_recheck)
+            return await self.llm_stream(prompt_recheck, emit)
 
         return review

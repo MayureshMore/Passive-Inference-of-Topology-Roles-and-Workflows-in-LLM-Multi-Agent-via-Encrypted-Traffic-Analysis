@@ -33,6 +33,10 @@ class TraceFeatures:
     burst_sequence: np.ndarray = field(default_factory=lambda: np.zeros((0, 10), dtype=np.float32))
     # Gap sequence between bursts (T-1,)
     gap_sequence: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
+    # Per-flow response-segmentation features: one 10-dim vector per flow.
+    # Each vector counts response-direction packets > 60 B (non-ACK segments)
+    # and their size/timing distributions.  See SEG_FEATURE_NAMES() for layout.
+    seg_features: list[np.ndarray] = field(default_factory=list)
 
     def flat_vector(self) -> np.ndarray:
         """
@@ -62,6 +66,30 @@ class TraceFeatures:
         ps_vec = self.per_system.to_vector()  # 87-dim
         return np.concatenate([pf_mean, pf_top1, pf_top2, ps_vec]).astype(np.float32)  # 195-dim
 
+    def seg_vector(self) -> np.ndarray:
+        """
+        30-dim response-segmentation vector: pf_seg_mean | pf_seg_top1 | pf_seg_top2.
+
+        Each block is 10-dim (see SEG_FEATURE_NAMES for field layout).
+        Top-1/top-2 flows are sorted by n_segs (most response segments first).
+
+        With the official a2a-sdk, agents stream their answers as Server-Sent
+        Events (JSON-RPC message/stream), so on the wire each response-direction
+        packet corresponds to an SSE event — a streamed token/coalesced chunk or
+        the final result artifact.  These features therefore capture genuine
+        SSE-chunk structure: how many response events each flow emits and their
+        size/timing spread, directly reflecting the agent's streaming behaviour
+        and per-invocation LLM roundtrips.
+        """
+        zero10 = np.zeros(10, dtype=np.float32)
+        if not self.seg_features:
+            return np.concatenate([zero10, zero10, zero10])
+        pf_seg_mean = np.mean(self.seg_features, axis=0).astype(np.float32)
+        sorted_segs = sorted(self.seg_features, key=lambda x: x[0], reverse=True)
+        pf_seg_top1 = sorted_segs[0].astype(np.float32) if len(sorted_segs) >= 1 else zero10
+        pf_seg_top2 = sorted_segs[1].astype(np.float32) if len(sorted_segs) >= 2 else zero10
+        return np.concatenate([pf_seg_mean, pf_seg_top1, pf_seg_top2]).astype(np.float32)
+
     def save(self, out_path: Path) -> None:
         np.savez_compressed(
             out_path,
@@ -69,6 +97,7 @@ class TraceFeatures:
             burst_sequence=self.burst_sequence,
             gap_sequence=self.gap_sequence,
             per_system=self.per_system.to_vector(),
+            seg=self.seg_vector(),
         )
 
     @staticmethod
@@ -196,6 +225,65 @@ class FeatureExtractor:
             packets.append((ts, size, flow_key, direction))
         return packets
 
+    @staticmethod
+    def _compute_seg_features(
+        packets: list[tuple[float, int, int]],  # (ts, size, direction)
+    ) -> np.ndarray:
+        """
+        10-dim response-segmentation features for one flow.
+
+        Response segments: direction==1 (agent→client) AND wirelen > 60 B.
+        The 60-byte threshold excludes pure TCP ACKs (typically 40-54 bytes on
+        loopback) and retains actual HTTP response data packets.
+
+        On loopback with MTU=65536, each LLM call typically produces one large
+        response segment, so n_segs ≈ n_LLM_roundtrips — the primary signal
+        distinguishing deployment A (different call counts per role) from B.
+
+        Feature layout (10-dim):
+          [0] n_segs            count of response-direction pkts with wirelen > 60B
+          [1] seg_mean_sz       mean segment size (bytes)
+          [2] seg_std_sz        std of segment sizes
+          [3] seg_p25_sz        25th percentile size
+          [4] seg_p75_sz        75th percentile size
+          [5] seg_iqr_sz        p75 - p25
+          [6] seg_mean_gap_ms   mean inter-segment gap (ms)
+          [7] seg_std_gap_ms    std of gaps
+          [8] seg_min_gap_ms    min gap
+          [9] seg_max_gap_ms    max gap
+        """
+        segs = [(ts, sz) for ts, sz, d in packets if d == 1 and sz > 60]
+        if not segs:
+            return np.zeros(10, dtype=np.float32)
+
+        sizes = np.array([sz for _, sz in segs], dtype=np.float32)
+        timestamps = sorted(ts for ts, _ in segs)
+
+        p25 = float(np.percentile(sizes, 25))
+        p75 = float(np.percentile(sizes, 75))
+
+        if len(timestamps) > 1:
+            gaps_ms = np.diff(timestamps).astype(np.float64) * 1000.0
+            mean_gap = float(np.mean(gaps_ms))
+            std_gap  = float(np.std(gaps_ms))
+            min_gap  = float(np.min(gaps_ms))
+            max_gap  = float(np.max(gaps_ms))
+        else:
+            mean_gap = std_gap = min_gap = max_gap = 0.0
+
+        return np.array([
+            float(len(segs)),
+            float(np.mean(sizes)),
+            float(np.std(sizes)) if len(sizes) > 1 else 0.0,
+            p25,
+            p75,
+            p75 - p25,
+            mean_gap,
+            std_gap,
+            min_gap,
+            max_gap,
+        ], dtype=np.float32)
+
     def _compute_features(
         self,
         run_id: str,
@@ -214,12 +302,14 @@ class FeatureExtractor:
             flow_packets = [(ts, size, fk, d) for ts, size, d in pkts]
             bursts_by_flow[fk] = self.segmenter.segment(flow_packets)
 
-        # Per-flow features
+        # Per-flow features + response-segmentation features
         pf_features: list[PerFlowFeatures] = []
+        seg_features: list[np.ndarray] = []
         flow_time_ranges: dict[str, tuple[float, float]] = {}
         for fk, pkts in by_flow.items():
             pf = compute_per_flow(fk, bursts_by_flow.get(fk, []), pkts)
             pf_features.append(pf)
+            seg_features.append(self._compute_seg_features(pkts))
             if pkts:
                 ts_list = [ts for ts, _, _ in pkts]
                 flow_time_ranges[fk] = (min(ts_list), max(ts_list))
@@ -247,4 +337,5 @@ class FeatureExtractor:
             per_system=ps_feat,
             burst_sequence=burst_seq,
             gap_sequence=gap_seq,
+            seg_features=seg_features,
         )

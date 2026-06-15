@@ -1,0 +1,120 @@
+{
+  "model": "random_forest",
+  "task": "parallelism",
+  "cv": {
+    "accuracy": {
+      "mean": 0.9298831335813015,
+      "std": 0.023137777258248483
+    },
+    "f1_macro": {
+      "mean": 0.9230565223798785,
+      "std": 0.025458230737232662
+    },
+    "precision_macro": {
+      "mean": 0.9155654438990787,
+      "std": 0.024058213596925948
+    },
+    "recall_macro": {
+      "mean": 0.9349772306267367,
+      "std": 0.028456999457350075
+    },
+    "confusion_matrix": {
+      "labels": [
+        "parallel",
+        "sequential"
+      ],
+      "matrix": [
+        [
+          368,
+          32
+        ],
+        [
+          10,
+          190
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.total_packets",
+      0.11326182171278762
+    ],
+    [
+      "sys.total_bursts",
+      0.10129484089846975
+    ],
+    [
+      "sys.n_flows",
+      0.05661131320792791
+    ],
+    [
+      "sys.n_response_heavy_flows",
+      0.03892090980349124
+    ],
+    [
+      "sys.total_bytes",
+      0.03835575988890785
+    ],
+    [
+      "sys.total_duration_s",
+      0.032830203885634145
+    ],
+    [
+      "sys.heaviest_flow_bytes_frac",
+      0.029714818664031223
+    ],
+    [
+      "sys.pf_std_std_sz_out",
+      0.02430072955961274
+    ],
+    [
+      "pf_top2.mean_burst_dur",
+      0.019928541093615363
+    ],
+    [
+      "pf_top2.bytes_in",
+      0.017876627719231337
+    ],
+    [
+      "pf_top2.cumul_bytes_q7",
+      0.017612440579237457
+    ],
+    [
+      "pf_top2.cumul_bytes_q8",
+      0.017079053953792816
+    ],
+    [
+      "sys.pf_std_mean_iat",
+      0.0156931981178706
+    ],
+    [
+      "pf_top2.cumul_bytes_q9",
+      0.014600733117558601
+    ],
+    [
+      "sys.pf_mean_mean_burst_dur",
+      0.012563702134580149
+    ],
+    [
+      "pf_mean.mean_burst_dur",
+      0.011913674018452195
+    ],
+    [
+      "sys.pf_std_mean_burst_dur",
+      0.01177156134525885
+    ],
+    [
+      "sys.pf_mean_std_sz_in",
+      0.011598054043986792
+    ],
+    [
+      "sys.pf_mean_std_burst_bytes",
+      0.011400832791848645
+    ],
+    [
+      "pf_mean.mean_sz_in",
+      0.011374884487748952
+    ]
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "model": "gradient_boosted",
+  "task": "topology",
+  "cv": {
+    "accuracy": {
+      "mean": 0.9949572769295418,
+      "std": 0.004118080904066115
+    },
+    "f1_macro": {
+      "mean": 0.9949992186279106,
+      "std": 0.004083120892278068
+    },
+    "precision_macro": {
+      "mean": 0.995121951219512,
+      "std": 0.003982910150866978
+    },
+    "recall_macro": {
+      "mean": 0.9949999999999999,
+      "std": 0.004082482904638615
+    },
+    "confusion_matrix": {
+      "labels": [
+        "chain",
+        "mesh",
+        "star"
+      ],
+      "matrix": [
+        [
+          198,
+          2,
+          0
+        ],
+        [
+          1,
+          199,
+          0
+        ],
+        [
+          0,
+          0,
+          200
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.max_concurrent_flows",
+      0.2853333333333333
+    ],
+    [
+      "pf_mean.n_pkts_out",
+      0.1706666666666667
+    ],
+    [
+      "pf_mean.n_pkts_in",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_out",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_in",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.duration_s",
+      0.0
+    ],
+    [
+      "pf_mean.mean_iat",
+      0.0
+    ],
+    [
+      "pf_mean.std_iat",
+      0.0
+    ],
+    [
+      "pf_mean.n_bursts",
+      0.0
+    ],
+    [
+      "pf_mean.mean_burst_bytes",
+      0.0
+    ],
+    [
+      "pf_mean.std_burst_bytes",
+      0.0
+    ],
+    [
+      "pf_mean.mean_burst_dur",
+      0.0
+    ]
+  ]
+}

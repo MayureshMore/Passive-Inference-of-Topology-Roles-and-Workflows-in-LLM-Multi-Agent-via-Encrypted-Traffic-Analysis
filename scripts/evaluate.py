@@ -138,7 +138,8 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
                      ablate_parallelism: bool = False,
                      ablate_size: bool = False,
                      rf_only: bool = False,
-                     skip_cnn: bool = False) -> dict:
+                     skip_cnn: bool = False,
+                     full_suite: bool = False) -> dict:
     from evaluation.closed_world import ClosedWorldEval
 
     all_results = {}
@@ -192,51 +193,55 @@ def run_closed_world(tasks: list[str], ablate_structural: bool = False,
         if rf_only:
             logger.info("Skipping GBT/CNN/Transformer (--rf-only) [%s]", task)
         else:
-            # ── GBT baseline ────────────────────────────────────────────────
-            logger.info("--- Closed-world GBT [%s] ---", task)
+            # ── GBT: one-line confirmation of RF result ──────────────────────
+            logger.info("--- Closed-world GBT [%s] (confirmation) ---", task)
             try:
                 gbt_result = evaluator.run_gbt(out_dir=out_dir)
                 all_results[f"{task}/gbt"] = gbt_result
             except Exception as exc:
                 logger.warning("GBT failed for task=%s: %s", task, exc)
 
-            # ── 1-D CNN (burst sequences) ────────────────────────────────────
-            # Better than Transformer at 600 traces; suppress only when
-            # explicitly asked (--skip-cnn) or when too few samples per fold.
-            if skip_cnn:
-                logger.info("Skipping CNN1D [%s] (--skip-cnn)", task)
-            elif _min_class_count(y) >= n_splits * 2:
-                logger.info("--- Closed-world CNN1D [%s] ---", task)
-                try:
-                    cnn_result = evaluator.run_cnn(
-                        burst_sequences=burst_seqs,
-                        gap_sequences=gap_seqs,
-                        out_dir=out_dir,
-                        n_epochs=40,
-                    )
-                    all_results[f"{task}/cnn"] = cnn_result
-                except Exception as exc:
-                    logger.warning("CNN1D failed for task=%s: %s", task, exc)
+            if not full_suite:
+                logger.info(
+                    "Skipping CNN1D + Transformer [%s] — data-starved at N≈600.  "
+                    "Re-enable with --full-suite once dataset exceeds ~1,500 samples/class.",
+                    task,
+                )
             else:
-                logger.info("Skipping CNN1D [%s] (too few samples per fold)", task)
+                # ── 1-D CNN (burst sequences) ────────────────────────────────
+                if skip_cnn:
+                    logger.info("Skipping CNN1D [%s] (--skip-cnn)", task)
+                elif _min_class_count(y) >= n_splits * 2:
+                    logger.info("--- Closed-world CNN1D [%s] ---", task)
+                    try:
+                        cnn_result = evaluator.run_cnn(
+                            burst_sequences=burst_seqs,
+                            gap_sequences=gap_seqs,
+                            out_dir=out_dir,
+                            n_epochs=40,
+                        )
+                        all_results[f"{task}/cnn"] = cnn_result
+                    except Exception as exc:
+                        logger.warning("CNN1D failed for task=%s: %s", task, exc)
+                else:
+                    logger.info("Skipping CNN1D [%s] (too few samples per fold)", task)
 
-            # ── Transformer: uninformative at < ~1,000 traces ───────────────
-            # Re-enable once you have 1,000–2,000+ traces per class.
-            if _min_class_count(y) >= n_splits * 2:
-                logger.info("--- Closed-world Transformer [%s] ---", task)
-                try:
-                    tr_result = evaluator.run_transformer(
-                        burst_sequences=burst_seqs,
-                        gap_sequences=gap_seqs,
-                        out_dir=out_dir,
-                        n_epochs=80,
-                        patience=12,
-                    )
-                    all_results[f"{task}/transformer"] = tr_result
-                except Exception as exc:
-                    logger.warning("Transformer failed for task=%s: %s", task, exc)
-            else:
-                logger.info("Skipping Transformer [%s] (too few samples per fold)", task)
+                # ── Transformer: uninformative at < ~1,500 samples/class ─────
+                if _min_class_count(y) >= n_splits * 2:
+                    logger.info("--- Closed-world Transformer [%s] ---", task)
+                    try:
+                        tr_result = evaluator.run_transformer(
+                            burst_sequences=burst_seqs,
+                            gap_sequences=gap_seqs,
+                            out_dir=out_dir,
+                            n_epochs=80,
+                            patience=12,
+                        )
+                        all_results[f"{task}/transformer"] = tr_result
+                    except Exception as exc:
+                        logger.warning("Transformer failed for task=%s: %s", task, exc)
+                else:
+                    logger.info("Skipping Transformer [%s] (too few samples per fold)", task)
 
     return all_results
 
@@ -398,17 +403,32 @@ def print_results(closed: dict, open_: dict) -> None:
 
     if closed:
         print(f"\n{sep}")
-        print("  CLOSED-WORLD RESULTS")
+        print("  CLOSED-WORLD RESULTS  (RF primary; GBT confirms)")
         print(sep)
-        print(f"  {'Task / Model':<38} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
-        print(f"  {'-'*60}")
+        print(f"  {'Task / Model':<42} {'Accuracy':>10} {'Macro-F1':>10} {'vs Random':>12}")
+        print(f"  {'-'*64}")
+
+        # Collect GBT results for one-line confirmation footnotes
+        _gbt_confirm: dict[str, str] = {}
+        for key, res in closed.items():
+            if "/gbt" not in key or "__" in key:
+                continue
+            task_name = key.split("/")[0]
+            cv = res.get("cv", {})
+            f1 = cv.get("f1_macro", {}).get("mean", res.get("mean_macro_f1", 0))
+            _gbt_confirm[task_name] = f"{f1:.3f}"
 
         for key, res in closed.items():
-            # Phase 4: Transformer excluded from headline table — data-starved at N=600
+            # Exclude deep models unless they were explicitly run (--full-suite)
             if "/transformer" in key and "__ablated" not in key:
                 continue
+            if "/cnn" in key and "__ablated" not in key:
+                continue
+            # GBT: move to footnote, not headline rows
+            if "/gbt" in key and "__" not in key:
+                continue
             task, model = key.rsplit("/", 1)
-            ablated = "__ablated" in key          # catches both __ablated and __size_ablated
+            ablated = "__ablated" in key
             size_ablated = "__size_ablated" in key
             if "cv" in res:
                 cv = res["cv"]
@@ -439,27 +459,41 @@ def print_results(closed: dict, open_: dict) -> None:
                     label += "  [-concurrency]"
                 else:
                     label += "  [ablated]"
-            print(f"  {label:<38} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
 
-        if any("topology" in k for k in closed):
-            print(f"\n  NOTE topology: trivially separable by routing structure —")
-            print(f"  not a subtle side-channel. topology/rf__ablated confirms system")
-            print(f"  scalars are redundant; pf_top1/pf_top2 encode the same structure.")
-            print(f"  Use 'parallelism' for the honest C1 claim.")
-        if any("parallelism" in k and "ablated" in k for k in closed):
-            print(f"\n  NOTE parallelism: parallelism/rf__ablated zeros max_concurrent,")
-            print(f"  flow_start/end_spread. If accuracy holds, the signal is in")
-            print(f"  per-packet timing/size, not just concurrency counting.")
+            # Mark structural baseline tasks explicitly
+            base_task = task.split("/")[0]
+            if base_task in ("topology", "parallelism") and not ablated and not size_ablated:
+                label += "  [STRUCTURAL BASELINE]"
 
-        # Phase 1 — gradient interpretation of size ablation
+            print(f"  {label:<42} {acc:.3f}±{acc_std:.3f}  {f1:.3f}       {above}")
+
+        # GBT one-line confirmation
+        if _gbt_confirm:
+            print()
+            print("  GBT confirmation (identical result expected — reports where it differs):")
+            for tnm, f1s in sorted(_gbt_confirm.items()):
+                print(f"    {tnm}: GBT F1={f1s}")
+
+        print()
+        print(f"  STRUCTURAL BASELINE note (topology + parallelism):")
+        print(f"  These tasks achieve near-perfect accuracy but reflect the routing")
+        print(f"  graph, which is directly observable from IP headers without any ML.")
+        print(f"  An on-path observer needs no classifier to see which hosts connect.")
+        print(f"  topology/rf__ablated confirms system scalars are redundant with")
+        print(f"  pf_top1/pf_top2 structural features.  parallelism/rf__ablated confirms")
+        print(f"  the signal survives zeroing max_concurrent/flow_start/end_spread — but")
+        print(f"  this is still structural (B runs star/mesh sequentially yet transfers")
+        print(f"  at 100% A→B; see cross-deployment results).")
+
+        # Size ablation — above-chance retention table
         _sz_keys = sorted(k for k in closed if "__size_ablated" in k)
         if _sz_keys:
-            _n_cls_map = {"workflow": 4, "role": 4, "parallelism": 2, "topology": 3}
+            _n_cls_map = {"workflow": 4, "role": 3, "parallelism": 2, "topology": 3}
             print()
-            print(f"  SIZE ABLATION — fraction of above-chance signal retained after")
-            print(f"  zeroing all byte-count / packet-size features:")
-            print(f"  {'Task':<20} {'Full RF':>8} {'No-Size':>9} {'Random':>7} {'Retained':>10}")
-            print(f"  {'-'*56}")
+            print(f"  SIZE ABLATION — above-chance signal retained after zeroing size features:")
+            print(f"  retention = (no_size_acc − random) / (full_rf_acc − random)")
+            print(f"  {'Task':<20} {'Full RF':>8} {'No-Size':>9} {'Random':>7} {'Above-chance ret':>17}")
+            print(f"  {'-'*63}")
             for _sz_key in _sz_keys:
                 _base = _sz_key.replace("__size_ablated", "")
                 _tnm  = _sz_key.split("/")[0]
@@ -471,18 +505,20 @@ def print_results(closed: dict, open_: dict) -> None:
                 _af   = _rf["cv"].get("accuracy", {}).get("mean", 0) if "cv" in _rf else _rf.get("mean_accuracy", 0)
                 _aa   = _ra["cv"].get("accuracy", {}).get("mean", 0) if "cv" in _ra else _ra.get("mean_accuracy", 0)
                 _ret  = (_aa - _rand) / max(_af - _rand, 1e-9)
-                print(f"  {_tnm:<20} {_af:>8.3f} {_aa:>9.3f} {_rand:>7.3f} {_ret:>9.1%}")
+                print(f"  {_tnm:<20} {_af:>8.3f} {_aa:>9.3f} {_rand:>7.3f} {_ret:>16.1%}")
             print()
-            print(f"  Gradient: <20% → timing/structure signal only.")
-            print(f"  50–80% → size is the dominant discriminant.")
-            print(f"  >80% → size and structure are confounded.")
+            print(f"  Gradient: <30% → timing/structure signal dominates.")
+            print(f"  30–70%   → size and structure contribute roughly equally.")
+            print(f"  >70%     → size is the primary discriminant.")
             print()
 
-        # Phase 4 — Transformer footnote
-        if any("/transformer" in k for k in closed):
-            print(f"  * Transformer excluded from headline: workflow val_acc≈37% at N=600")
-            print(f"    is data-starved (≥1,500–2,000 samples/class needed for sequence models).")
-            print(f"    Retained in summary.json; re-evaluate after Phase 5 doubles dataset.")
+        # Deep model footnote
+        if any("/transformer" in k or "/cnn" in k for k in closed):
+            print(f"  * CNN1D/Transformer in summary.json (run with --full-suite).")
+        else:
+            print(f"  * CNN1D + Transformer excluded from headline (data-starved at N≈600;")
+            print(f"    transformer F1≈32% for workflow is near-random).  Re-enable with")
+            print(f"    --full-suite once dataset exceeds ~1,500 samples/class.")
 
     if open_:
         print(f"\n{sep}")
@@ -544,7 +580,8 @@ def main(args: argparse.Namespace) -> None:
 
     # Tasks:
     #  - workflow: 4-class (research/code/data/support) — the core fingerprinting claim
-    #  - role:     4-class (orchestrator/executor/retriever/validator) — C2
+    #  - role:     3-class (executor/retriever/validator) — C2
+    #    orchestrator absent: invoked directly by test script, no inbound A2A HTTP
     #  - parallelism: 2-class (sequential vs parallel) — honest C1 replacement
     #    chain → sequential; star/mesh → parallel. This is a genuine timing signal
     #    (chain imposes serial latency; parallel fan-out compresses it).
@@ -558,7 +595,7 @@ def main(args: argparse.Namespace) -> None:
     if args.mode in ("closed_world", "all"):
         closed = run_closed_world(tasks, ablate_structural=False,
                                   ablate_parallelism=False, rf_only=args.rf_only,
-                                  skip_cnn=args.skip_cnn)
+                                  skip_cnn=args.skip_cnn, full_suite=args.full_suite)
 
     if args.mode in ("open_world", "all"):
         open_ = run_open_world(tasks)
@@ -583,6 +620,11 @@ def main(args: argparse.Namespace) -> None:
             _sz_abl = run_closed_world([_sz_task], ablate_size=True, rf_only=True)
             for k, v in _sz_abl.items():
                 closed[f"{k}__size_ablated"] = v
+
+    if args.mode in ("closed_world", "all") and not args.rf_only and not args.full_suite:
+        # Remove transformer/CNN entries from the summary JSON (they were not run).
+        closed = {k: v for k, v in closed.items()
+                  if "/transformer" not in k and "/cnn" not in k}
 
     print_results(closed, open_)
 
@@ -613,5 +655,7 @@ if __name__ == "__main__":
     p.add_argument("--rf-only", action="store_true",
                    help="Run RF only — skip GBT, CNN, Transformer")
     p.add_argument("--skip-cnn", action="store_true",
-                   help="Skip CNN1D (useful on CPU-only machines — CNN is slow without MPS/CUDA)")
+                   help="(Legacy flag — CNN is already off by default; use --full-suite to enable)")
+    p.add_argument("--full-suite", action="store_true",
+                   help="Enable CNN1D + Transformer (data-starved at N=600; only use with ≥1,500 samples/class)")
     main(p.parse_args())

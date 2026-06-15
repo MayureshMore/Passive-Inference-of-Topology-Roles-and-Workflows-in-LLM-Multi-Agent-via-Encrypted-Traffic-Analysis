@@ -65,6 +65,7 @@ BG_PORTS = {
 }
 
 OLLAMA_URL   = "http://127.0.0.1:11434"
+OLLAMA_PORT  = 11434
 OLLAMA_MODEL = "llama3.2:3b"
 
 # Categories sent to main loop (bg_multi_rest treated as one logical category)

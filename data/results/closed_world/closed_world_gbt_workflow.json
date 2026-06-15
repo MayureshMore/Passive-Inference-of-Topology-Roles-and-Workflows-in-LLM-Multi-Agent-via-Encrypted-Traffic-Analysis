@@ -1,0 +1,138 @@
+{
+  "model": "gradient_boosted",
+  "task": "workflow",
+  "cv": {
+    "accuracy": {
+      "mean": 0.71,
+      "std": 0.037785946829182106
+    },
+    "f1_macro": {
+      "mean": 0.707852434399029,
+      "std": 0.03778175587465319
+    },
+    "precision_macro": {
+      "mean": 0.7128095143382962,
+      "std": 0.034196169535675114
+    },
+    "recall_macro": {
+      "mean": 0.71,
+      "std": 0.03778594682918208
+    },
+    "confusion_matrix": {
+      "labels": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ],
+      "matrix": [
+        [
+          100,
+          33,
+          10,
+          7
+        ],
+        [
+          16,
+          123,
+          5,
+          6
+        ],
+        [
+          13,
+          1,
+          96,
+          40
+        ],
+        [
+          7,
+          2,
+          34,
+          107
+        ]
+      ]
+    }
+  },
+  "top_features": [
+    [
+      "sys.max_flow_bytes_out_ratio",
+      0.029333333333333322
+    ],
+    [
+      "sys.mean_burst_rate",
+      0.008000000000000007
+    ],
+    [
+      "pf_top2.cumul_bytes_q2",
+      0.001666666666666683
+    ],
+    [
+      "pf_mean.n_pkts_out",
+      0.0
+    ],
+    [
+      "pf_mean.n_pkts_in",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_out",
+      0.0
+    ],
+    [
+      "pf_mean.bytes_in",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_out",
+      0.0
+    ],
+    [
+      "pf_mean.mean_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.std_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p25_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.p75_sz_in",
+      0.0
+    ],
+    [
+      "pf_mean.duration_s",
+      0.0
+    ],
+    [
+      "pf_mean.mean_iat",
+      0.0
+    ],
+    [
+      "pf_mean.std_iat",
+      0.0
+    ],
+    [
+      "pf_mean.n_bursts",
+      0.0
+    ],
+    [
+      "pf_mean.mean_burst_bytes",
+      0.0
+    ]
+  ]
+}
