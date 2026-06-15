@@ -89,6 +89,7 @@ class BurstTransformer(nn.Module):
     ) -> None:
         super().__init__()
         self.d_model = d_model
+        self.max_seq_len = max_seq_len
 
         # Input projection
         self.input_proj = nn.Linear(burst_dim, d_model)
@@ -129,6 +130,17 @@ class BurstTransformer(nn.Module):
         gap_seq: torch.Tensor,         # (B, T-1) inter-burst gaps
         src_key_padding_mask: Optional[torch.Tensor] = None,  # (B, T+1) True = pad
     ) -> torch.Tensor:
+        # Guard: cap sequence length to max_seq_len so any caller (training via
+        # BurstDataset, the validation loop that feeds raw sequences, or inference)
+        # stays within the positional-encoding capacity and matches the truncated
+        # length the model is trained on.  SSE burst sequences can exceed 1000.
+        if burst_seq.size(1) > self.max_seq_len:
+            burst_seq = burst_seq[:, : self.max_seq_len, :]
+            if gap_seq is not None and gap_seq.dim() == 2 and gap_seq.size(1) > self.max_seq_len - 1:
+                gap_seq = gap_seq[:, : self.max_seq_len - 1]
+            if src_key_padding_mask is not None and src_key_padding_mask.size(1) > self.max_seq_len + 1:
+                src_key_padding_mask = src_key_padding_mask[:, : self.max_seq_len + 1]
+
         B, T, _ = burst_seq.shape
 
         # Project burst features
@@ -203,7 +215,11 @@ class BurstDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int):
         bs = self.burst_seqs[idx][: self.max_len]
-        gs = self.gap_seqs[idx][: max(len(self.burst_seqs[idx]) - 1, 0)]
+        # Truncate gaps CONSISTENTLY with the (possibly truncated) burst sequence:
+        # there are len(bs) - 1 inter-burst gaps among the kept bursts.  Using the
+        # full (untruncated) burst length here produced gap tensors longer than the
+        # burst buffer once SSE traffic pushed sequences past max_len → collate crash.
+        gs = self.gap_seqs[idx][: max(len(bs) - 1, 0)]
         return bs, gs, self.labels[idx]
 
 
@@ -221,8 +237,10 @@ def collate_fn(batch):
         t = bs.size(0)
         padded_bursts[i, :t] = bs
         pad_mask[i, 1 : t + 1] = False  # CLS always unmasked (index 0)
-        if gs.size(0) > 0:
-            padded_gaps[i, : gs.size(0)] = gs
+        # Defensive clamp: never write more gaps than the buffer (or burst) holds.
+        gn = min(gs.size(0), padded_gaps.size(1), max(t - 1, 0))
+        if gn > 0:
+            padded_gaps[i, :gn] = gs[:gn]
 
     return padded_bursts, padded_gaps, pad_mask, torch.stack(labels)
 

@@ -217,6 +217,26 @@ def write_markdown(figs: dict[str, Path | None]) -> Path:
         lines.append(_md_table(per_class_metrics(cm)))
         lines.append("")
 
+    # deep-model footnote table (only if --full-suite produced them)
+    def _f1_of(model: str, task: str):
+        d = _load(RESULTS / "closed_world" / f"closed_world_{model}_{task}.json")
+        cv = d.get("cv", d)
+        f = cv.get("f1_macro")
+        return f.get("mean") if isinstance(f, dict) else f
+    tasks = ["workflow", "role", "topology", "parallelism"]
+    if any(_f1_of("transformer", t) is not None or _f1_of("cnn", t) is not None for t in tasks):
+        lines.append("## Deep models vs trees (data-starved footnote)\n")
+        lines.append("Reported for completeness — both deep sequence models underperform the "
+                     "tree attackers at N=600, consistent with data-starvation.\n")
+        lines.append("| Task | GBT | RF | Transformer | CNN1D | chance |")
+        lines.append("|---|---|---|---|---|---|")
+        for t in tasks:
+            def s(m):
+                v = _f1_of(m, t)
+                return f"{v:.3f}" if v is not None else "—"
+            lines.append(f"| {t} | {s('gbt')} | {s('rf')} | {s('transformer')} | {s('cnn')} | {CHANCE[t]:.3f} |")
+        lines.append("")
+
     # defense table
     dl = _load(RESULTS / "defense" / "defense_live.json")
     if dl:

@@ -1,0 +1,56 @@
+{
+  "model": "cnn1d",
+  "task": "workflow",
+  "cv": {
+    "accuracy": {
+      "mean": 0.31,
+      "std": 0.04666666666666665
+    },
+    "f1_macro": {
+      "mean": 0.2279335131789582,
+      "std": 0.055967110083060774
+    },
+    "precision_macro": {
+      "mean": 0.3410619129686859,
+      "std": 0.08270797351360361
+    },
+    "recall_macro": {
+      "mean": 0.31,
+      "std": 0.046666666666666676
+    },
+    "confusion_matrix": {
+      "labels": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ],
+      "matrix": [
+        [
+          20,
+          62,
+          2,
+          66
+        ],
+        [
+          28,
+          58,
+          4,
+          60
+        ],
+        [
+          13,
+          31,
+          7,
+          99
+        ],
+        [
+          10,
+          34,
+          5,
+          101
+        ]
+      ]
+    }
+  }
+}

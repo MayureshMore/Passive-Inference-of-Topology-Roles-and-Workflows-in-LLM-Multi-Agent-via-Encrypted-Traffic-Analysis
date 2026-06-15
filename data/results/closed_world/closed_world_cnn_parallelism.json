@@ -1,0 +1,38 @@
+{
+  "model": "cnn1d",
+  "task": "parallelism",
+  "cv": {
+    "accuracy": {
+      "mean": 0.6666391146622583,
+      "std": 0.003018254700698968
+    },
+    "f1_macro": {
+      "mean": 0.39998811645870463,
+      "std": 0.0010848573301035964
+    },
+    "precision_macro": {
+      "mean": 0.33331955733112917,
+      "std": 0.001509127350349484
+    },
+    "recall_macro": {
+      "mean": 0.5,
+      "std": 0.0
+    },
+    "confusion_matrix": {
+      "labels": [
+        "parallel",
+        "sequential"
+      ],
+      "matrix": [
+        [
+          400,
+          0
+        ],
+        [
+          200,
+          0
+        ]
+      ]
+    }
+  }
+}

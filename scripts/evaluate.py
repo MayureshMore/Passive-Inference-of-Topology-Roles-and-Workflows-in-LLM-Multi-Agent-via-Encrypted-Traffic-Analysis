@@ -690,9 +690,17 @@ def main(args: argparse.Namespace) -> None:
                 closed[f"{k}__size_ablated"] = v
 
     if args.mode in ("closed_world", "all") and not args.rf_only and not args.full_suite:
-        # Remove transformer/CNN entries from the summary JSON (they were not run).
+        # Deep models were NOT run this pass.  Drop them from the summary dict AND
+        # delete any stale closed_world_{transformer,cnn}_*.json left on disk from
+        # an earlier --full-suite run, so nothing reads deep-model numbers that no
+        # longer match the RF/GBT results just regenerated here.
         closed = {k: v for k, v in closed.items()
                   if "/transformer" not in k and "/cnn" not in k}
+        cw_dir = RESULTS_DIR / "closed_world"
+        for _stale in list(cw_dir.glob("closed_world_transformer_*.json")) + \
+                      list(cw_dir.glob("closed_world_cnn_*.json")):
+            _stale.unlink()
+            logger.info("removed stale deep-model file %s (run with --full-suite to include)", _stale.name)
 
     print_results(closed, open_)
 

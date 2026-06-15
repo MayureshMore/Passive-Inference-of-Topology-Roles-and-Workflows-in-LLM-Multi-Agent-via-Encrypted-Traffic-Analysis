@@ -222,6 +222,16 @@ class BaseA2AAgent:
         """
         client = await self._get_http_client()
         card = await self._resolve_card(client, target_url)
+        # The card self-advertises the agent's BIND address (config.base_url()),
+        # which is the listening host — e.g. http://0.0.0.0:PORT when serving on
+        # all interfaces (the WAN case), or a NAT-internal address.  That is not
+        # necessarily reachable from here, and the SDK client would otherwise
+        # POST message/stream to it → ConnectError across a WAN/VPN.  Pin the
+        # client to the URL we actually reached this agent on.
+        try:
+            card.url = target_url
+        except Exception:  # frozen model — copy with the corrected url
+            card = card.model_copy(update={"url": target_url})
         a2a_client = A2AClient(client, agent_card=card)
 
         msg = Message(

@@ -126,23 +126,25 @@ Key per-flow features include packet size distribution, inter-arrival timing, di
 
 | Model | File | Notes |
 |-------|------|-------|
-| Random Forest | `models/random_forest.py` | 300-tree ensemble on flat 195-dim vector; baseline |
-| Gradient Boosted Trees | `models/gradient_boosted.py` | HistGradientBoostingClassifier; second baseline |
-| 1-D CNN | `models/cnn1d.py` | Operates on burst sequence; learns local temporal patterns |
-| Transformer | `models/transformer.py` | Lightweight attention over burst sequence; main model |
+| Gradient Boosted Trees | `models/gradient_boosted.py` | HistGradientBoostingClassifier on the flat 195-dim vector; **primary headline attacker** (marginal-best) |
+| Random Forest | `models/random_forest.py` | 300-tree ensemble; headline tree attacker, statistically equivalent to GBT (overlapping CIs) |
+| 1-D CNN | `models/cnn1d.py` | Operates on the burst sequence; data-starved at the current ~600-trace scale — reported as a scale-check, not a headline |
+| Transformer | `models/transformer.py` | Gap-aware attention over the burst sequence; data-starved at current scale (learns role, where it has ~1,750 samples) — scale-check only |
+
+The two tree models are the headline attackers; the two deep sequence models are retained as a data-scale sensitivity check and would need ~1,500–2,000 traces per class to compete.
 
 ---
 
 ## Defenses
 
-Two groups of defenses are implemented and evaluated:
+Two groups of defenses are implemented and evaluated **live on defended captures** (the defense runs inside the agents and the resulting traffic is captured on the wire — not a feature-space simulation):
 
-**Website-fingerprinting classics** (adapted for A2A):
-- `defense/padding.py` — packet padding to fixed or randomized bucket sizes
-- `defense/scheduling.py` — randomized delegation scheduling to blur timing patterns
+**Group 1 — website-fingerprinting classics** (adapted to the A2A layer):
+- SSE-cell size padding — each SSE event is padded up to the next fixed cell multiple at the agent (`agents/base.py`, `_cell_pad_len`)
 
-**A2A-specific**:
-- `defense/dummy.py` — dummy agent interactions that mimic other workflow patterns
+**Group 2 — A2A-specific** (no analogue in the website-fingerprinting setting):
+- `defense/scheduling.py` — randomized, jittered, reordered delegation scheduling to blur inter-agent timing and structure
+- `defense/dummy.py` — injected dummy agent interactions (spurious sub-calls) that obscure genuine collaboration
 
 ---
 
@@ -175,7 +177,7 @@ pip install -r requirements.txt
 **Key dependencies:**
 
 ```
-a2a-sdk>=0.2.0        # A2A protocol SDK (Linux Foundation)
+a2a-sdk[http-server]==0.3.26   # A2A SDK (Linux Foundation); pinned — 1.x is gRPC-only, unsuitable
 ollama>=0.3.3          # Local LLM client
 starlette + uvicorn    # Agent HTTP servers
 scapy / pyshark        # Packet capture parsing
@@ -214,7 +216,7 @@ sudo venv/bin/python scripts/run_pilot.py --n 50 --out data/raw 2>&1 | tee logs/
 python scripts/collect_traces.py --workflow research_retrieval --topology star --n 50
 ```
 
-`sudo` is required only for tcpdump BPF capture; privilege is dropped immediately after the capture subprocess starts.
+`sudo` is required for tcpdump's raw-socket/BPF access. Capture is scoped to the target agent host:port flows by an explicit BPF filter and to a 96-byte snaplen, so only header metadata of the agents under test is recorded — never payload, never unrelated hosts. (Alternatively, grant BPF read access once with `chmod o+r /dev/bpf*` to run the collector without `sudo`.)
 
 ### Feature Extraction
 
@@ -265,6 +267,19 @@ python scripts/evaluate_defense_live.py \
   --pad      data/processed_defense_pad  --pad-raw      data/raw_defense_pad
 ```
 
+### Cross-Network Evaluation (C5 — US ⇄ India WAN)
+
+The full step-by-step WAN procedure (both hosts, capture vantage, gates, collection, evaluation, troubleshooting) lives in [docs/C5_WAN_RUNBOOK.md](docs/C5_WAN_RUNBOOK.md). In short — serve the specialist agents on the remote (India) host, drive the orchestrator from the local (US) host so A2A crosses the VPN, and capture **post-decapsulation on the tunnel interface** (not the physical NIC):
+
+```bash
+# remote (India):  venv/bin/python scripts/serve_agents.py --topology star --deployment a
+# local  (US):     sudo venv/bin/python scripts/collect_wan.py \
+#                    --remote-host <INDIA_IP> --iface <vpn-tunnel-iface> \
+#                    --deployment a --topology star --n 50 --num-predict 256 --out data/raw_wan
+venv/bin/python scripts/extract_features.py --raw data/raw_wan --out data/processed_wan --scapy
+venv/bin/python scripts/evaluate_cross_network.py --local data/processed --wan data/processed_wan
+```
+
 ---
 
 ## Evaluation Discipline
@@ -298,7 +313,7 @@ Raw pcap files and trained models are gitignored. Only metadata-only CSV traces 
 
 - **No payload capture.** tcpdump is invoked with `-s 96` (header-only snaplen). Payload bytes are never written to disk, stored, or examined.
 - **No targeting of external systems.** All captures run on infrastructure owned and operated by the researchers.
-- **Privilege minimization.** `sudo` is used only to launch tcpdump. The Python process itself runs without elevated privileges.
+- **Capture minimization.** `sudo` is required for tcpdump's raw-socket/BPF access. Capture is constrained to the target agent host:port flows via an explicit BPF filter and to a 96-byte snaplen, so only header metadata of the agents under test is ever recorded — never payload, never unrelated hosts. Granting `/dev/bpf*` read access lets the collector run without `sudo` entirely.
 - **Responsible disclosure.** Defense evaluation (C4) is conducted before any public release of attack-accuracy results, so the community has mitigation guidance alongside the attack findings.
 
 ---
@@ -306,7 +321,8 @@ Raw pcap files and trained models are gitignored. Only metadata-only CSV traces 
 ## Project Structure
 
 ```
-agents/       A2A agent implementations (orchestrator, executor, retriever, validator)
+agents/       A2A agent implementations (orchestrator, executor, retriever, validator) — deployment A
+agents_b/     Second, deliberately different deployment (B) for cross-deployment / model-vs-logic disentanglement
 workflows/    Workflow prompt generators (research_retrieval, code_review, data_analysis, support_triage)
 capture/      Packet capture automation (tcpdump/tshark wrappers, trace labeler, automation driver)
 features/     Feature extraction pipeline (burst segmentation, per-flow, per-system, flat vector)
@@ -314,6 +330,7 @@ models/       ML models: Random Forest, GBT, 1D-CNN, Transformer
 defense/      Traffic-shaping defenses (padding, scheduling randomization, dummy interactions)
 evaluation/   Evaluation scripts (closed-world, open-world, cross-network, metrics)
 scripts/      Runnable entry points (PoC, collect, train, evaluate, ablation)
+tests/        Unit + regression tests (features, defense, metrics, stats/SSE, deep-model shapes)
 configs/      YAML configs (testbed hosts, topology definitions, workflow assignments)
 data/         GITIGNORED — raw pcaps, features, model checkpoints
 logs/         Collection and training logs
