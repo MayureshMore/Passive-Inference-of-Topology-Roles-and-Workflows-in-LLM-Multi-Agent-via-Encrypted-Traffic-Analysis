@@ -1,0 +1,38 @@
+{
+  "model": "random_forest",
+  "task": "topology",
+  "train_network": "us_local",
+  "test_network": "us_india_wan",
+  "n_train": 600,
+  "n_test": 395,
+  "n_samples": 395,
+  "accuracy": 0.5189873417721519,
+  "macro_f1": 0.33971486761710795,
+  "macro_precision": 0.42649320896743576,
+  "macro_recall": 0.3439316239316239,
+  "per_class": {
+    "chain": {
+      "precision": 0.7571428571428571,
+      "recall": 0.2717948717948718,
+      "f1": 0.4,
+      "support": 195
+    },
+    "mesh": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 0
+    },
+    "star": {
+      "precision": 0.5223367697594502,
+      "recall": 0.76,
+      "f1": 0.6191446028513238,
+      "support": 200
+    }
+  },
+  "random_baseline_accuracy": 0.5,
+  "majority_baseline_accuracy": 0.5063291139240507,
+  "majority_baseline_f1": 0.33613445378151263,
+  "above_random": true,
+  "above_majority": true
+}

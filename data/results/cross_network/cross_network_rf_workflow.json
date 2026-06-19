@@ -1,0 +1,44 @@
+{
+  "model": "random_forest",
+  "task": "workflow",
+  "train_network": "us_local",
+  "test_network": "us_india_wan",
+  "n_train": 600,
+  "n_test": 395,
+  "n_samples": 395,
+  "accuracy": 0.25569620253164554,
+  "macro_f1": 0.1550246523388116,
+  "macro_precision": 0.2659243697478991,
+  "macro_recall": 0.2639473684210526,
+  "per_class": {
+    "code_review": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 100
+    },
+    "data_analysis": {
+      "precision": 0.24369747899159663,
+      "recall": 0.9157894736842105,
+      "f1": 0.3849557522123893,
+      "support": 95
+    },
+    "research_retrieval": {
+      "precision": 0.32,
+      "recall": 0.08,
+      "f1": 0.128,
+      "support": 100
+    },
+    "support_triage": {
+      "precision": 0.5,
+      "recall": 0.06,
+      "f1": 0.10714285714285712,
+      "support": 100
+    }
+  },
+  "random_baseline_accuracy": 0.25,
+  "majority_baseline_accuracy": 0.25316455696202533,
+  "majority_baseline_f1": 0.10101010101010101,
+  "above_random": true,
+  "above_majority": true
+}

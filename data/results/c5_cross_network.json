@@ -1,0 +1,176 @@
+{
+  "workflow": {
+    "chance": 0.25,
+    "lan_internal": {
+      "f1": 0.6627483284957234,
+      "ci_lo": 0.6254038453446249,
+      "ci_hi": 0.7020069672877631,
+      "acc": 0.6649999999999999,
+      "n": 600,
+      "classes": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ]
+    },
+    "wan_internal": {
+      "f1": 0.6416245725751116,
+      "ci_lo": 0.5992549539949796,
+      "ci_hi": 0.6895961292829571,
+      "acc": 0.6455696202531647,
+      "n": 395,
+      "classes": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ]
+    },
+    "transfer": {
+      "f1": 0.1550246523388116,
+      "ci_lo": 0.12210262365418875,
+      "ci_hi": 0.18746562493982522,
+      "acc": 0.25569620253164554,
+      "n": 395,
+      "train_classes": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ],
+      "test_classes": [
+        "code_review",
+        "data_analysis",
+        "research_retrieval",
+        "support_triage"
+      ]
+    }
+  },
+  "role": {
+    "chance": 0.3333333333333333,
+    "lan_internal": {
+      "f1": 0.8691772755108703,
+      "ci_lo": 0.8528388965111916,
+      "ci_hi": 0.884734437958342,
+      "acc": 0.8706018537568418,
+      "n": 1747,
+      "classes": [
+        "executor",
+        "retriever",
+        "validator"
+      ]
+    },
+    "wan_internal": {
+      "f1": 0.9007067902080106,
+      "ci_lo": 0.876973769442838,
+      "ci_hi": 0.9216346267518817,
+      "acc": 0.9068999283496536,
+      "n": 795,
+      "classes": [
+        "executor",
+        "retriever",
+        "validator"
+      ]
+    },
+    "transfer": {
+      "f1": 0.5052885026099808,
+      "ci_lo": 0.47564505309534777,
+      "ci_hi": 0.5363742660097874,
+      "acc": 0.4830188679245283,
+      "n": 795,
+      "train_classes": [
+        "executor",
+        "retriever",
+        "validator"
+      ],
+      "test_classes": [
+        "executor",
+        "retriever",
+        "validator"
+      ]
+    }
+  },
+  "parallelism": {
+    "chance": 0.5,
+    "lan_internal": {
+      "f1": 0.9719970361470412,
+      "ci_lo": 0.9578821428169596,
+      "ci_hi": 0.985,
+      "acc": 0.9749145887863342,
+      "n": 600,
+      "classes": [
+        "parallel",
+        "sequential"
+      ]
+    },
+    "wan_internal": {
+      "f1": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "acc": 1.0,
+      "n": 395,
+      "classes": [
+        "parallel",
+        "sequential"
+      ]
+    },
+    "transfer": {
+      "f1": 0.4360072689511942,
+      "ci_lo": 0.3927889415073101,
+      "ci_hi": 0.481118878073592,
+      "acc": 0.5544303797468354,
+      "n": 395,
+      "train_classes": [
+        "parallel",
+        "sequential"
+      ],
+      "test_classes": [
+        "parallel",
+        "sequential"
+      ]
+    }
+  },
+  "topology": {
+    "chance": 0.3333333333333333,
+    "lan_internal": {
+      "f1": 0.9849966130769534,
+      "ci_lo": 0.9747334630027761,
+      "ci_hi": 0.9934688961973567,
+      "acc": 0.9850930022537373,
+      "n": 600,
+      "classes": [
+        "chain",
+        "mesh",
+        "star"
+      ]
+    },
+    "wan_internal": {
+      "f1": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "acc": 1.0,
+      "n": 395,
+      "classes": [
+        "chain",
+        "star"
+      ]
+    },
+    "transfer": {
+      "f1": 0.33971486761710795,
+      "ci_lo": 0.305390760808036,
+      "ci_hi": 0.3719412168076447,
+      "acc": 0.5189873417721519,
+      "n": 395,
+      "train_classes": [
+        "chain",
+        "mesh",
+        "star"
+      ],
+      "test_classes": [
+        "chain",
+        "star"
+      ]
+    }
+  }
+}
