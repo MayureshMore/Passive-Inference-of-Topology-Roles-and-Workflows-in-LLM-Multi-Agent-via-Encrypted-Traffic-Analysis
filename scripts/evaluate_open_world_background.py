@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -45,7 +46,9 @@ logger = logging.getLogger(__name__)
 
 PROCESSED_DIR    = Path("data/processed")
 BG_PROCESSED_DIR = Path("data/processed_background")
-RESULTS_DIR      = Path("data/results")
+# Override with A2A_RESULTS_DIR to write a re-run into a sandbox / fresh copy
+# without touching the canonical committed data/results.
+RESULTS_DIR      = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
 
 SOFT_CATS = {"bg_web_browse", "bg_file_download", "bg_api_rest"}
 HARD_CATS = {"bg_jsonrpc", "bg_multi_rest", "bg_llm_direct"}

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -34,6 +35,10 @@ from models.random_forest import RFClassifier
 
 CHANCE = {"workflow": 0.25, "role": 1.0 / 3, "parallelism": 0.5, "topology": 1.0 / 3}
 TASKS = ["workflow", "role", "parallelism", "topology"]
+
+# Output dir. Override with A2A_RESULTS_DIR (e.g. reproduce.sh sandbox) so a
+# re-run never overwrites the canonical committed data/results.
+RESULTS_DIR = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
 
 
 def _load(proc_dir: Path, task: str):
@@ -136,10 +141,10 @@ def main(args: argparse.Namespace) -> None:
         results[task] = {"chance": CHANCE[task], "lan_internal": lan,
                          "wan_internal": wan, "transfer": xfer}
 
-    out_json = Path("data/results/c5_cross_network.json")
+    out_json = RESULTS_DIR / "c5_cross_network.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(results, indent=2))
-    fig_path = Path("data/results/figures/c5_cross_network.png")
+    fig_path = RESULTS_DIR / "figures" / "c5_cross_network.png"
     fig_path.parent.mkdir(parents=True, exist_ok=True)
     _figure(fig_path, results, list(args.tasks))
 

@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +27,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-RESULTS = Path("data/results")
+# Override with A2A_RESULTS_DIR to read/write a sandbox copy (e.g. reproduce.sh),
+# leaving the canonical committed data/results untouched.
+RESULTS = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
 FIGS = RESULTS / "figures"
 FIGS.mkdir(parents=True, exist_ok=True)
 
@@ -241,8 +244,8 @@ def write_markdown(figs: dict[str, Path | None]) -> Path:
     dl = _load(RESULTS / "defense" / "defense_live.json")
     if dl:
         lines.append("## C4 live defenses (workflow attack)\n")
-        lines.append("| Defense | Acc [95% CI] | Drop | Signal kept | Byte ohd | Latency ohd |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| Defense | Acc [95% CI] | Drop | Signal kept | Byte ohd |")
+        lines.append("|---|---|---|---|---|")
         for n in ("none", "rate", "pad"):
             if n not in dl:
                 continue
@@ -251,9 +254,11 @@ def write_markdown(figs: dict[str, Path | None]) -> Path:
             drop = f"{r['acc_drop']:.3f}" if "acc_drop" in r else "—"
             keep = f"{r['above_chance_retention']*100:.0f}%" if "above_chance_retention" in r else "—"
             lines.append(f"| {n} | {r['accuracy']:.3f} {ci} | {drop} | {keep} | "
-                         f"{r.get('byte_overhead', 0)*100:.0f}% | {r.get('latency_overhead', 0)*100:.0f}% |")
-        lines.append("\n_Note: pad's negative latency overhead is a measurement artifact of the "
-                     "separately-collected padded set, not a speedup._\n")
+                         f"{r.get('byte_overhead', 0)*100:.0f}% |")
+        lines.append("\n_Cost is reported as **bandwidth (byte) overhead**. Latency is treated as "
+                     "confounded and omitted: the defended sets were collected separately, so "
+                     "wall-clock deltas (including pad's spurious negative) reflect run-to-run "
+                     "network/LLM variance, not the defense._\n")
 
     lines.append("## Figures\n")
     for name, p in figs.items():

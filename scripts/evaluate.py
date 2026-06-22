@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -29,7 +30,9 @@ logger = logging.getLogger(__name__)
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR    = Path("data/models")
-RESULTS_DIR   = Path("data/results")
+# Output dir. Override with A2A_RESULTS_DIR to write a re-run into a fresh copy /
+# sandbox without ever touching the canonical committed data/results.
+RESULTS_DIR   = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────

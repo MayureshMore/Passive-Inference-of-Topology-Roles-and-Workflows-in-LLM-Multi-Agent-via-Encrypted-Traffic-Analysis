@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -175,7 +176,7 @@ def main(args: argparse.Namespace) -> None:
             100 * retention, 100 * byte_ohd, 100 * lat_ohd,
         )
 
-    out = Path("data/results/defense/defense_live.json")
+    out = Path(os.environ.get("A2A_RESULTS_DIR", "data/results")) / "defense" / "defense_live.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, indent=2))
 

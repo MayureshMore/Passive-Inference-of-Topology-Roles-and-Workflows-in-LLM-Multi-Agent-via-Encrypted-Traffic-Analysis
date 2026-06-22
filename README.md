@@ -187,6 +187,41 @@ torch>=2.2             # CNN + Transformer models
 
 ---
 
+## Reproducing the paper
+
+All tables and figures regenerate **deterministically** from the published feature
+matrices — no GPU, no network, no Ollama, no testbed; minutes, not hours. (Raw
+*collection* is stochastic by nature — a fresh collection yields a different
+dataset with point estimates inside the published CIs, not the identical numbers;
+see [DATA.md](DATA.md) and the [C5 runbook](docs/C5_WAN_RUNBOOK.md) for that.)
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+# download + unpack the published feature archive into data/  (see DATA.md)
+#   archive: <ARCHIVE_URL — filled in after the Zenodo/figshare/OSF upload>
+bash scripts/reproduce.sh
+```
+
+`scripts/reproduce.sh` is a short demonstration run: it re-analyses the frozen
+features into a **sandbox** (`data/results_demo/`) and prints a side-by-side check
+against the committed canonical results — it **never overwrites `data/results/`**.
+RF/GBT/transfer point estimates use a fixed seed, so they reproduce the committed
+numbers exactly. (Deep CNN/Transformer models are stochastic, footnote-only, and
+off by default; add `--full-suite` to include them.)
+
+To re-run the full suite into a **fresh copy** instead of the sandbox — the
+canonical `data/results/` is still never touched — redirect the output dir:
+
+```bash
+A2A_RESULTS_DIR=data/results_$(date +%F) bash scripts/reproduce.sh --full-suite
+```
+
+> The committed `data/results/` is the frozen, canonical paper output. No normal
+> run overwrites or deletes it; every re-run writes to a sandbox or a fresh copy.
+
+---
+
 ## Running the Pipeline
 
 ### Phase 0 — Verify A2A traffic is on the wire
@@ -277,7 +312,7 @@ The full step-by-step WAN procedure (both hosts, capture vantage, gates, collect
 #                    --remote-host <INDIA_IP> --iface <vpn-tunnel-iface> \
 #                    --deployment a --topology star --n 50 --num-predict 256 --out data/raw_wan
 venv/bin/python scripts/extract_features.py --raw data/raw_wan --out data/processed_wan --scapy
-venv/bin/python scripts/evaluate_cross_network.py --local data/processed --wan data/processed_wan
+venv/bin/python scripts/evaluate_c5.py --local data/processed --wan data/processed_wan
 ```
 
 ---
