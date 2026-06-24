@@ -1,0 +1,19 @@
+# Deployment C — LangGraph cross-framework testbed (all agents on localhost).
+# Same taxonomy/labels as deployment A; the orchestrator is a LangGraph
+# StateGraph (agents_langgraph/) while the specialists are A's A2A servers
+# reused unchanged.  LAN-local, 3B model — no VPN/WAN (this axis is about
+# implementation, not vantage).
+
+orchestrator: "127.0.0.1:8030"
+executor:     "127.0.0.1:8031"
+retriever:    "127.0.0.1:8032"
+validator:    "127.0.0.1:8033"
+
+interface: lo0        # macOS loopback; use "lo" on Linux
+
+ollama_base_url: "http://localhost:11434"
+ollama_model: "llama3.2:3b"   # same model as A (the 2x2 proved model != fingerprint)
+
+# Testbed site label (same vantage as A — this is a cross-implementation, not
+# cross-network, experiment).
+site: "us_local"

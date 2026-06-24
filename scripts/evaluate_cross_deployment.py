@@ -365,21 +365,35 @@ def _above_chance_retention(f1: float, random_baseline: float, ceiling: float) -
 
 
 def _verdict(ab_f1: float, ba_f1: float, random_baseline: float, ceiling: float,
-             task: str) -> str:
-    """Return a single-line verdict string."""
+             task: str, label_b: str = "B", control: bool = False) -> str:
+    """Return a single-line verdict string.
+
+    label_b   — slot name for the second deployment in printed text ("B", "C", ...).
+    control   — when True the second deployment is a RUNTIME-INVARIANCE CONTROL
+                (shares A's logic/prompts/call-structure; only the runtime differs).
+                In that mode the A↔B generalization verdicts are FALSE, so we emit a
+                neutral pointer instead and never claim cross-framework generalization.
+    """
+    a, b = "A", label_b
+    ab_ret = _above_chance_retention(ab_f1, random_baseline, ceiling)
+    ba_ret = _above_chance_retention(ba_f1, random_baseline, ceiling)
+
+    if control:
+        return (
+            f"RUNTIME-INVARIANCE CONTROL — {a} and {b} share logic/prompts/call-structure; "
+            f"only the orchestration runtime differs.  {a}→{b} retention {ab_ret:.0%}, "
+            f"{b}→{a} {ba_ret:.0%}.  Interpret via data/results/runtime_traffic_diagnostic.json; "
+            f"this is NOT a cross-framework generalization result."
+        )
+
     # topology and parallelism are structural baseline signals — connection graph
     # is directly readable from IP headers without any classifier.
     if task in ("topology", "parallelism"):
-        ab_ret = _above_chance_retention(ab_f1, random_baseline, ceiling)
-        ba_ret = _above_chance_retention(ba_f1, random_baseline, ceiling)
         return (
             f"STRUCTURAL BASELINE — connection graph is trivially observable from "
-            f"IP headers (no ML required).  A→B above-chance retention {ab_ret:.0%}, "
-            f"B→A {ba_ret:.0%}.  NOT an independent attack result."
+            f"IP headers (no ML required).  {a}→{b} above-chance retention {ab_ret:.0%}, "
+            f"{b}→{a} {ba_ret:.0%}.  NOT an independent attack result."
         )
-
-    ab_ret = _above_chance_retention(ab_f1, random_baseline, ceiling)
-    ba_ret = _above_chance_retention(ba_f1, random_baseline, ceiling)
 
     # Verdict on A→B (primary transfer direction)
     if ab_f1 < random_baseline + 0.05:
@@ -395,7 +409,7 @@ def _verdict(ab_f1: float, ba_f1: float, random_baseline: float, ceiling: float,
 
     return (
         f"{direction}\n"
-        f"  Above-chance retention:  A→B {ab_ret:.0%}  |  B→A {ba_ret:.0%}"
+        f"  Above-chance retention:  {a}→{b} {ab_ret:.0%}  |  {b}→{a} {ba_ret:.0%}"
     )
 
 
@@ -403,10 +417,13 @@ def print_task_results(
     task: str,
     aa: dict, bb: dict | None, ab: dict, ba: dict,
     do_ci: bool,
+    label_b: str = "B",
+    control: bool = False,
 ) -> None:
     n_cls_map = {"workflow": 4, "role": 3, "parallelism": 2, "topology": 3}
     n_cls = n_cls_map.get(task, "?")
     random_baseline = 1.0 / n_cls if isinstance(n_cls, int) else None
+    b = label_b
 
     width = 60
     print()
@@ -415,26 +432,26 @@ def print_task_results(
     print("─" * width)
     print(f"  A→A (internal CV)   {_fmt(aa, False)}")
     if bb is not None:
-        print(f"  B→B (internal CV)   {_fmt(bb, False)}")
-    print(f"  A→B (transfer)      {_fmt(ab, do_ci)}")
-    print(f"  B→A (transfer)      {_fmt(ba, do_ci)}")
+        print(f"  {b}→{b} (internal CV)   {_fmt(bb, False)}")
+    print(f"  A→{b} (transfer)      {_fmt(ab, do_ci)}")
+    print(f"  {b}→A (transfer)      {_fmt(ba, do_ci)}")
 
     if isinstance(n_cls, int) and random_baseline is not None:
         ceiling = aa["macro_f1"]
         ab_f1   = ab["macro_f1"]
         ba_f1   = ba["macro_f1"]
         if np.isnan(ab_f1) or np.isnan(ceiling):
-            print("  (no deployment B data — run run_pilot.py --deployment b to enable transfer eval)")
+            print(f"  (no deployment {b} data — run run_pilot.py to enable transfer eval)")
             print()
             return
-        print(f"  → {_verdict(ab_f1, ba_f1, random_baseline, ceiling, task)}")
+        print(f"  → {_verdict(ab_f1, ba_f1, random_baseline, ceiling, task, label_b=b, control=control)}")
     print()
 
 
-def print_seg_subanalysis(seg_results: dict[str, dict], do_ci: bool) -> None:
+def print_seg_subanalysis(seg_results: dict[str, dict], do_ci: bool, label_b: str = "B") -> None:
     print()
     print("═" * 60)
-    print("  SSE response-pattern sub-analysis  (workflow, A→B)")
+    print(f"  SSE response-pattern sub-analysis  (workflow, A→{label_b})")
     print("  Both deployments stream via SSE (a2a-sdk message/stream); each")
     print("  response packet is an SSE event.  The 'seg' vector captures genuine")
     print("  SSE-chunk structure (n_response_bursts, iqr_size_in) — response")
@@ -475,6 +492,8 @@ def main(args: argparse.Namespace) -> None:
     dir_a = Path(args.dir_a)
     dir_b = Path(args.dir_b)
     do_bootstrap = not args.no_bootstrap
+    label_b = getattr(args, "label_b", "B")
+    control = getattr(args, "control", False)
 
     b_exists = (dir_b / "labels.json").exists()
     if not b_exists:
@@ -508,7 +527,7 @@ def main(args: argparse.Namespace) -> None:
             print_task_results(task, aa, None,
                                {"accuracy": float("nan"), "macro_f1": float("nan")},
                                {"accuracy": float("nan"), "macro_f1": float("nan")},
-                               do_ci=False)
+                               do_ci=False, label_b=label_b, control=control)
             continue
 
         # Load deployment B
@@ -519,7 +538,7 @@ def main(args: argparse.Namespace) -> None:
             print_task_results(task, aa, None,
                                {"accuracy": float("nan"), "macro_f1": float("nan")},
                                {"accuracy": float("nan"), "macro_f1": float("nan")},
-                               do_ci=False)
+                               do_ci=False, label_b=label_b, control=control)
             continue
 
         # B→B internal CV
@@ -538,7 +557,8 @@ def main(args: argparse.Namespace) -> None:
                           do_bootstrap=do_bootstrap)
         all_results[f"{task}/BA"] = ba
 
-        print_task_results(task, aa, bb, ab, ba, do_ci=do_bootstrap)
+        print_task_results(task, aa, bb, ab, ba, do_ci=do_bootstrap,
+                           label_b=label_b, control=control)
 
         # C2: seg sub-analysis for workflow only
         if task == "workflow" and not args.skip_seg:
@@ -549,7 +569,7 @@ def main(args: argparse.Namespace) -> None:
                 do_bootstrap=do_bootstrap,
             )
             all_results["workflow/seg_subanalysis"] = seg_results
-            print_seg_subanalysis(seg_results, do_ci=do_bootstrap)
+            print_seg_subanalysis(seg_results, do_ci=do_bootstrap, label_b=label_b)
 
     # Save results JSON
     out_path = Path(args.out)
@@ -558,15 +578,19 @@ def main(args: argparse.Namespace) -> None:
     logger.info("Results saved to %s", out_path)
 
     # Final interpretation block
-    _print_summary(all_results, args.tasks, do_bootstrap)
+    _print_summary(all_results, args.tasks, do_bootstrap, label_b=label_b, control=control)
 
 
-def _print_summary(all_results: dict, tasks: list[str], do_ci: bool) -> None:
+def _print_summary(all_results: dict, tasks: list[str], do_ci: bool,
+                   label_b: str = "B", control: bool = False) -> None:
     n_cls_map = {"workflow": 4, "role": 3, "parallelism": 2, "topology": 3}
+    b = label_b
+    title = ("RUNTIME-INVARIANCE CONTROL SUMMARY" if control
+             else "CROSS-DEPLOYMENT SUMMARY") + "  (above-chance retention)"
 
     print()
     print("=" * 60)
-    print("  CROSS-DEPLOYMENT SUMMARY  (above-chance retention)")
+    print(f"  {title}")
     print("  retention = (transfer_F1 − random) / (ceiling_F1 − random)")
     print("=" * 60)
 
@@ -583,12 +607,26 @@ def _print_summary(all_results: dict, tasks: list[str], do_ci: bool) -> None:
 
         flag = " [structural baseline]" if task in ("topology", "parallelism") else ""
         print(
-            f"  {task:<14}  A→A={aa_f1:.3f}  B→B={bb_f1:.3f}  "
-            f"A→B={ab_f1:.3f}(ret={ab_ret:.0%})  "
-            f"B→A={ba_f1:.3f}(ret={ba_ret:.0%}){flag}"
+            f"  {task:<14}  A→A={aa_f1:.3f}  {b}→{b}={bb_f1:.3f}  "
+            f"A→{b}={ab_f1:.3f}(ret={ab_ret:.0%})  "
+            f"{b}→A={ba_f1:.3f}(ret={ba_ret:.0%}){flag}"
         )
 
     print()
+    if control:
+        # The A↔B "key findings" boilerplate below is FALSE for a runtime-invariance
+        # control (A↔C shares logic/prompts/structure), so we never print it here.
+        print("  Key findings (control):")
+        print(f"  • {b} re-implements A's orchestrator in a different runtime while reusing")
+        print("    A's specialists, call structure, and task prompts unchanged — so only the")
+        print("    runtime scheduling the inter-agent calls differs.")
+        print(f"  • High A→{b} transfer is therefore a RUNTIME-INVARIANCE CONTROL, not")
+        print("    cross-framework generalization.  See data/results/runtime_traffic_diagnostic.json")
+        print("    (structure-invariant, timing-shifted).  Generalization across independently-")
+        print("    structured frameworks remains future work.")
+        print()
+        return
+
     print("  Key findings:")
     print("  • topology + parallelism transfer perfectly — but both reflect the")
     print("    connection graph (which hosts pair), readable directly from IP headers.")
@@ -617,6 +655,13 @@ def _parse() -> argparse.Namespace:
                    help="Skip bootstrap CI computation (faster)")
     p.add_argument("--skip-seg", action="store_true",
                    help="Skip response-pattern heuristic sub-analysis (formerly 'seg')")
+    p.add_argument("--label-b", default="B",
+                   help="Console label for the second deployment's slot (e.g. 'C' for the "
+                        "LangGraph runtime control). JSON keys stay AA/BB/AB/BA regardless.")
+    p.add_argument("--control", action="store_true",
+                   help="Mark the second deployment as a RUNTIME-INVARIANCE CONTROL (shares "
+                        "A's logic/prompts/structure; only the runtime differs). Suppresses the "
+                        "A↔B generalization 'key findings'/verdicts, which are false for a control.")
     p.add_argument("--out", default="data/results/cross_deployment.json",
                    help="Output JSON path (default: data/results/cross_deployment.json)")
     return p.parse_args()

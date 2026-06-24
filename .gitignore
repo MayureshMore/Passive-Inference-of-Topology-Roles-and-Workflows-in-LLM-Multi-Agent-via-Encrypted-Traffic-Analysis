@@ -39,6 +39,14 @@ data/*
 # ── graphify outputs (regenerable via /graphify; keep repo clean) ────────────
 graphify-out/
 
+# ── AI-assistant tooling (not part of the published research artifact) ────────
+# Claude Code project config/hooks and the project instruction file are local
+# dev aids, not paper artifacts — keep on disk, out of the public repo.
+# Already-tracked copies must be untracked once:
+#   git rm --cached CLAUDE.md .claude/settings.json
+.claude/
+CLAUDE.md
+
 # ── Packet capture files ──────────────────────────────────────────────────────
 *.pcap
 *.pcapng

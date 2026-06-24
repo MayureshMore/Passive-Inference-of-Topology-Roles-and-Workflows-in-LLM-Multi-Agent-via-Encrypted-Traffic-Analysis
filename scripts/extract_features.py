@@ -98,7 +98,11 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
             logger.debug("Skipping failed run %s", run.run_id)
             continue
 
-        features = extractor.extract(pcap_path, run_id=run.run_id)
+        try:
+            features = extractor.extract(pcap_path, run_id=run.run_id)
+        except ValueError as exc:  # zero valid A2A flows — fail loud (per-pcap)
+            logger.error("ZERO-FLOW extraction failure: %s", exc)
+            features = None
         if features is None:
             logger.warning("No features extracted from %s", pcap_path.name)
             n_fail += 1
@@ -197,6 +201,15 @@ def main(raw_dir: Path, out_dir: Path, use_scapy: bool = False) -> None:
                 "deployment": run.deployment,
             }
             n_role += 1
+
+    # FAIL HARD on a systematic zero-extraction (the IPv6-bug class): refuse to
+    # write an empty dataset that exits 0 and looks like success.
+    if pcap_files and n_ok == 0:
+        raise SystemExit(
+            f"FATAL: extracted 0/{len(pcap_files)} traces from {raw_dir} — systematic "
+            f"failure (wrong agent_ports, IPv4-vs-IPv6 mismatch, or all runs marked "
+            f"failed). Refusing to write an empty dataset."
+        )
 
     (out_dir / "labels.json").write_text(json.dumps(labels_map, indent=2))
     logger.info(

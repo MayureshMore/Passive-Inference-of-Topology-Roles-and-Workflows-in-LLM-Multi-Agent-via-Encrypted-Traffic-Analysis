@@ -290,4 +290,3 @@ ports become `8011-8013`, orchestrator `8010`):
 ```
 
 Deployment A (above) is the primary C5 path; B is optional extra robustness.
-

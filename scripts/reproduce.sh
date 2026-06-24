@@ -11,8 +11,10 @@
 #     sandbox (data/results_demo/) and prints a side-by-side check against the
 #     committed data/results/, to show the pipeline reproduces the headline.
 #   * --full-suite: run the whole evaluation suite into the sandbox / copy
-#     (closed-world incl. deep models, cross-deployment, model-vs-logic,
+#     (closed-world RF+GBT, cross-deployment, runtime-swap control, model-vs-logic,
 #     open-world, live defenses, C5, paper artifacts).
+#   * --with-deep: also train the stochastic CNN/Transformer (OFF by default — the
+#     deterministic RF+GBT headline reproduces without them).  Combine with --full-suite.
 #
 # The canonical results are protected two ways:
 #   1. output dir is the sandbox (A2A_RESULTS_DIR), never data/results;
@@ -29,14 +31,21 @@
 # features alone, and each stage auto-skips if its inputs are absent.
 #
 # Usage:
-#   bash scripts/reproduce.sh                 # short demo (sandbox)
-#   bash scripts/reproduce.sh --full-suite    # full suite into sandbox / copy
+#   bash scripts/reproduce.sh                          # short demo (sandbox)
+#   bash scripts/reproduce.sh --full-suite             # full suite (RF+GBT, no deep)
+#   bash scripts/reproduce.sh --full-suite --with-deep # also train CNN/Transformer
+#   PYTHON=venv/bin/python bash scripts/reproduce.sh   # pick the interpreter
 #
 set -u
 
-PY="venv/bin/python"
-MODE="demo"
-[ "${1:-}" = "--full-suite" ] && MODE="full"
+PY="${PYTHON:-python3}"          # override with PYTHON=venv/bin/python (or activate the venv)
+MODE="demo"; WITH_DEEP=0
+for arg in "$@"; do
+    case "$arg" in
+        --full-suite) MODE="full" ;;
+        --with-deep)  WITH_DEEP=1 ;;   # opt-in: also train CNN/Transformer (stochastic, slow)
+    esac
+done
 
 # ── Output sandbox (never the canonical data/results) ─────────────────────────
 CANON="data/results"
@@ -98,12 +107,25 @@ else
     B="${DIR_B:-data/processed_b_sdk}"; AMODEL="${DIR_AMODEL:-data/processed_amodel_sdk}"
     BLOGIC="${DIR_BLOGIC:-data/processed_blogic_sdk}"; BG="${DIR_BG:-data/processed_background_sdk}"
     RATE="${DIR_RATE:-data/processed_defense_rate}"; PAD="${DIR_PAD:-data/processed_defense_pad}"
+    LANGGRAPH="${DIR_LANGGRAPH:-data/processed_langgraph}"
 
-    stage "closed-world (RF + GBT + CNN + Transformer)"
-    if have "$A/labels.json"; then run $PY scripts/evaluate.py --mode all --full-suite; fi
+    # Deep models (CNN/Transformer) are stochastic + slow and are OFF by default;
+    # pass --with-deep to include them. RF+GBT (the deterministic headline) always run.
+    DEEP_FLAG=""; DEEP_LBL="(RF + GBT — deep OFF; pass --with-deep to add CNN/Transformer)"
+    [ "$WITH_DEEP" = 1 ] && { DEEP_FLAG="--full-suite"; DEEP_LBL="(RF + GBT + CNN + Transformer)"; }
+    stage "closed-world $DEEP_LBL"
+    if have "$A/labels.json"; then run $PY scripts/evaluate.py --mode all $DEEP_FLAG; fi
     stage "cross-deployment (A vs B)"
     if have "$A/labels.json" "$B/labels.json"; then
         run $PY scripts/evaluate_cross_deployment.py --dir-a "$A" --dir-b "$B" --out "$SANDBOX/cross_deployment.json"; fi
+    stage "runtime-swap control (A vs C / LangGraph — same logic, different runtime)"
+    if have "$A/labels.json" "$LANGGRAPH/labels.json"; then
+        run $PY scripts/evaluate_cross_deployment.py --dir-a "$A" --dir-b "$LANGGRAPH" \
+            --label-b C --control --out "$SANDBOX/cross_framework.json"; fi
+    stage "runtime-traffic diagnostic (A vs C — structure vs timing)"
+    if have "$A/labels.json" "$LANGGRAPH/labels.json"; then
+        run $PY scripts/diagnose_runtime_traffic.py --dir-a "$A" --dir-c "$LANGGRAPH" \
+            --out "$SANDBOX/runtime_traffic_diagnostic.json"; fi
     stage "model-vs-logic (2x2)"
     if have "$A/labels.json" "$AMODEL/labels.json" "$BLOGIC/labels.json" "$B/labels.json"; then
         run $PY scripts/evaluate_model_vs_logic.py --dir-a "$A" --dir-amodel "$AMODEL" \

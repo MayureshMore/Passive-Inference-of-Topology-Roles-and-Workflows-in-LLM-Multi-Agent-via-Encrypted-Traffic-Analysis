@@ -137,8 +137,16 @@ class FeatureExtractor:
             return None
 
         if not packets:
-            logger.warning("no A2A packets found in %s", pcap_path)
-            return None
+            # FAIL LOUD — zero packets on the agent ports almost always means a
+            # systematic capture/parse bug (wrong ports, or an IPv4-vs-IPv6
+            # mismatch — services on ::1 loopback), NOT a legitimately empty trace.
+            # Returning a silent None / zero-vector here is exactly how the IPv6
+            # binding bug went unnoticed ("Extracted 0/N" looked like success).
+            raise ValueError(
+                f"no valid A2A flows in {pcap_path}: 0 packets matched agent_ports "
+                f"{sorted(self.agent_ports)} — check the capture ports and the IP "
+                f"version (IPv4 vs IPv6 ::1 loopback)."
+            )
 
         return self._compute_features(run_id, packets)
 
@@ -178,8 +186,15 @@ class FeatureExtractor:
                         continue
                     ts = float(pkt.sniff_timestamp)
                     size = int(pkt.length)
-                    src_ip = str(pkt.ip.src)
-                    dst_ip = str(pkt.ip.dst)
+                    # Support IPv4 and IPv6 (services binding to ::1 loopback).
+                    if hasattr(pkt, "ip"):
+                        src_ip = str(pkt.ip.src)
+                        dst_ip = str(pkt.ip.dst)
+                    elif hasattr(pkt, "ipv6"):
+                        src_ip = str(pkt.ipv6.src)
+                        dst_ip = str(pkt.ipv6.dst)
+                    else:
+                        continue
                     # Canonical key: agent port always on the right (as "dst").
                     # This merges both directions of a TCP connection into one flow.
                     # direction=1 (from agent) = response; direction=-1 (to agent) = request.
@@ -199,12 +214,20 @@ class FeatureExtractor:
     def _read_with_scapy(
         self, pcap_path: Path
     ) -> list[tuple[float, int, str, int]]:
-        from scapy.all import rdpcap, IP, TCP
+        from scapy.all import rdpcap, IP, IPv6, TCP
 
         packets: list[tuple[float, int, str, int]] = []
         scapy_pkts = rdpcap(str(pcap_path))
         for pkt in scapy_pkts:
-            if IP not in pkt or TCP not in pkt:
+            if TCP not in pkt:
+                continue
+            # Support both IPv4 and IPv6 (e.g. services that bind to ::1 loopback).
+            # The IPv4 path is unchanged; IPv6 is additive.
+            if IP in pkt:
+                src_ip, dst_ip = pkt[IP].src, pkt[IP].dst
+            elif IPv6 in pkt:
+                src_ip, dst_ip = pkt[IPv6].src, pkt[IPv6].dst
+            else:
                 continue
             src_port = pkt[TCP].sport
             dst_port = pkt[TCP].dport
@@ -212,8 +235,6 @@ class FeatureExtractor:
                 continue
             ts = float(pkt.time)
             size = pkt.wirelen  # actual on-wire length; len(pkt) would give snaplen-truncated size
-            src_ip = pkt[IP].src
-            dst_ip = pkt[IP].dst
             # Canonical key: agent port always on the right (as "dst").
             # Merges both TCP directions into one bidirectional flow.
             if dst_port in self.agent_ports:

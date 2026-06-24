@@ -174,22 +174,23 @@ def fig_defense() -> Path | None:
         return None
     chance = dl.get("chance", 0.25)
     names = [n for n in ("none", "rate", "pad") if n in dl]
-    acc = [dl[n]["accuracy"] for n in names]
-    err = [( max(0, dl[n]["accuracy"] - dl[n].get("accuracy_ci_lo", dl[n]["accuracy"])),
-             max(0, dl[n].get("accuracy_ci_hi", dl[n]["accuracy"]) - dl[n]["accuracy"]) ) for n in names]
+    # Headline metric is macro-F1 (not accuracy); use the macro-F1 bootstrap CI.
+    f1v = [dl[n]["macro_f1"] for n in names]
+    err = [( max(0, dl[n]["macro_f1"] - dl[n].get("macro_f1_ci_lo", dl[n]["macro_f1"])),
+             max(0, dl[n].get("macro_f1_ci_hi", dl[n]["macro_f1"]) - dl[n]["macro_f1"]) ) for n in names]
     byte = [100 * dl[n].get("byte_overhead", 0) for n in names]
 
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(9.5, 4.0))
-    # left: attack accuracy under each defense (with CI) + chance line
-    a1.bar(names, acc, yerr=np.array(err).T, capsize=5,
+    # left: attack macro-F1 under each defense (with CI) + chance line
+    a1.bar(names, f1v, yerr=np.array(err).T, capsize=5,
            color=["#888", "#e6550d", "#3182bd"])
     a1.axhline(chance, color="crimson", ls="--", lw=1.5, label=f"chance ({chance:.2f})")
     for i, n in enumerate(names):
-        ret = dl[n].get("above_chance_retention")
+        ret = dl[n].get("above_chance_retention_f1", dl[n].get("above_chance_retention"))
         if ret is not None:
-            a1.text(i, acc[i] + 0.03, f"keep {ret*100:.0f}%", ha="center", fontsize=8)
-    a1.set_ylabel("attack accuracy (95% CI)"); a1.set_ylim(0, max(acc) + 0.18)
-    a1.set_title("Attack accuracy under defense"); a1.legend(loc="upper right")
+            a1.text(i, f1v[i] + 0.03, f"keep {ret*100:.0f}%", ha="center", fontsize=8)
+    a1.set_ylabel("attack macro-F1 (95% CI)"); a1.set_ylim(0, max(f1v) + 0.18)
+    a1.set_title("Attack macro-F1 under defense"); a1.legend(loc="upper right")
     # right: byte overhead cost
     a2.bar(names, byte, color=["#888", "#e6550d", "#3182bd"])
     a2.set_ylabel("byte overhead (%)"); a2.set_title("Bandwidth cost of each defense")

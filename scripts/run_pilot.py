@@ -44,6 +44,7 @@ from agents_b.executor_b import ExecutorB
 from agents_b.orchestrator_b import OrchestratorB
 from agents_b.retriever_b import RetrieverB
 from agents_b.validator_b import ValidatorB
+from agents_langgraph.orchestrator_langgraph import OrchestratorLangGraph
 from capture.automation import TraceCollector
 from capture.recorder import PacketRecorder
 from workflows import WORKFLOW_REGISTRY, WorkflowClass
@@ -80,6 +81,20 @@ DEPLOYMENTS: dict[str, dict] = {
         "validator": ValidatorB,
         "default_model": "qwen2.5:7b",
         "default_out": "data/raw_b",
+    },
+    # Deployment C — runtime-invariance control (LangGraph StateGraph orchestrator).
+    # Reuses A's specialists, call structure, and prompts unchanged (label alignment);
+    # only the orchestration RUNTIME differs — so it is a control, NOT an independent
+    # framework.  Ports 8030-8033 so C runs back-to-back with A/B (8021 is occupied
+    # by a system service on the primary testbed Mac).
+    "langgraph": {
+        "ports": {"orchestrator": 8030, "executor": 8031, "retriever": 8032, "validator": 8033},
+        "orchestrator": OrchestratorLangGraph,
+        "executor": ExecutorAgent,
+        "retriever": RetrieverAgent,
+        "validator": ValidatorAgent,
+        "default_model": "llama3.2:3b",
+        "default_out": "data/raw_langgraph",
     },
 }
 
@@ -423,9 +438,11 @@ async def main(args: argparse.Namespace) -> None:
 
 def _parse() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="A2A pilot: collect traces for all topology × workflow pairs (deployment A or B)")
-    p.add_argument("--deployment", choices=["a", "b"], default="a",
+    p.add_argument("--deployment", choices=["a", "b", "langgraph"], default="a",
                    help="Agent deployment: a=agents/ (parallel, llama default), "
-                        "b=agents_b/ (sequential, qwen default). Default: a.")
+                        "b=agents_b/ (sequential, qwen default), "
+                        "langgraph=agents_langgraph/ (LangGraph StateGraph orchestrator, "
+                        "A's specialists, llama). Default: a.")
     p.add_argument("--topology", choices=["star", "chain", "mesh"],
                    help="Run one topology only (default: all three)")
     p.add_argument("--workflow",

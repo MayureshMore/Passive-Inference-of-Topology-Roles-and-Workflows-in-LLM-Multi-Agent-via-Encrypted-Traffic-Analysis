@@ -14,7 +14,7 @@ figures you download a published data archive and unpack it into `data/`.
 
 | Archive | Contents | Size (approx) | Needed for |
 |---|---|---|---|
-| `a2a-features.zip` | `data/processed*/` — the `.npz` feature matrices + `labels.json` for every deployment (A, B, amodel, blogic), background, defended sets, and the C5 WAN capture | small (tens of MB) | **all of `reproduce.sh`** except live-defense overhead |
+| `a2a-features.zip` | `data/processed*/` — the `.npz` feature matrices + `labels.json` for every deployment (A, B, amodel, blogic, **C/LangGraph**), background, defended sets, the C5 WAN capture, and (when captured) the **off-the-shelf** `a2a_mcp` set | small (tens of MB) | **all of `reproduce.sh`** except live-defense overhead |
 | `a2a-raw-pcaps.zip` | `data/raw*/` — header-only `.pcap` captures (96-byte snaplen, metadata only, no payload) + `.json` label sidecars | large (GBs) | live-defense **byte/latency overhead** only, and re-extracting features from scratch |
 
 **Archive location:** `<ARCHIVE_URL — to be filled in after the Zenodo/figshare/OSF upload>`
@@ -44,6 +44,8 @@ data/
   processed_amodel_sdk/      A-logic + qwen2.5:7b       — model-vs-logic
   processed_blogic_sdk/      B-logic + llama3.2:3b      — model-vs-logic
   processed_background_sdk/  real background traffic    — open-world
+  processed_langgraph/       deployment C (LangGraph runtime, A's logic/prompts) — cross-framework runtime-invariance control
+  processed_offtheshelf/     Google a2a_mcp (external author) — Phase 5 detection / topology observability only (no transfer; see docs/PHASE5_A2A_MCP_PATCHES.md)
   processed_wan/             US⇄India WAN capture       — C5
   processed_defense_rate/    live "rate" defense
   processed_defense_pad/     live "pad" defense

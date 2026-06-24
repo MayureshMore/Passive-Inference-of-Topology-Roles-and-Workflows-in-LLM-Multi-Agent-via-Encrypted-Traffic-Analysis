@@ -17,6 +17,13 @@ httpx>=0.27.0
 httpx-sse>=0.4.0
 sse-starlette>=2.1.0   # SSE server transport for a2a-sdk message/stream
 
+# ── Cross-framework deployment C (LangGraph orchestration) ───────────────────
+# Independent orchestration engine for deployment C (agents_langgraph/): a
+# StateGraph schedules the A2A fan-out instead of hand-rolled asyncio.  Pinned.
+# (langgraph-sdk pulls websockets<16, a transitive downgrade that does not touch
+# the HTTP/SSE A2A path the study captures.)
+langgraph==1.2.6
+
 # ── Packet capture & parsing ─────────────────────────────────────────────────
 scapy>=2.5.0
 pyshark>=0.6.0

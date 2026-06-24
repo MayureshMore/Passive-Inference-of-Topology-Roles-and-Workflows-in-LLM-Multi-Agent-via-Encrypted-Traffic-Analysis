@@ -1,0 +1,135 @@
+diff --git a/samples/python/agents/a2a_mcp/pyproject.toml b/samples/python/agents/a2a_mcp/pyproject.toml
+index c3dc732..6e5870f 100644
+--- a/samples/python/agents/a2a_mcp/pyproject.toml
++++ b/samples/python/agents/a2a_mcp/pyproject.toml
+@@ -5,7 +5,7 @@ description = "A2A - MCP Sample"
+ readme = "README.md"
+ requires-python = ">=3.13"
+ dependencies = [
+-    "a2a-sdk[sql]>=0.3.0",
++    "a2a-sdk[sql]>=0.3.3,<0.4",
+     "click>=8.1.8",
+     "fastmcp>=1.0",
+     "google-adk>=1.0.0",
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/adk_travel_agent.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/adk_travel_agent.py
+index 1370a41..2741384 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/adk_travel_agent.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/adk_travel_agent.py
+@@ -2,6 +2,7 @@
+ 
+ import json
+ import logging
++import os
+ import re
+ 
+ from collections.abc import AsyncIterable
+@@ -50,7 +51,7 @@ class TravelAgent(BaseAgent):
+         generate_content_config = genai_types.GenerateContentConfig(
+             temperature=0.0
+         )
+-        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'gemini/gemini-2.0-flash')
++        LITELLM_MODEL = os.getenv('LITELLM_MODEL', 'gemini/gemini-2.5-flash')
+         self.agent = Agent(
+             name=self.agent_name,
+             instruction=self.instructions,
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/langgraph_planner_agent.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/langgraph_planner_agent.py
+index 53a0dc0..ac96013 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/langgraph_planner_agent.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/langgraph_planner_agent.py
+@@ -47,7 +47,7 @@ class LangGraphPlannerAgent(BaseAgent):
+         )
+ 
+         self.model = ChatGoogleGenerativeAI(
+-            model='gemini-2.0-flash', temperature=0.0
++            model='gemini-2.5-flash', temperature=0.0
+         )
+ 
+         self.graph = create_react_agent(
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/orchestrator_agent.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/orchestrator_agent.py
+index cfe1c4b..65b5dbb 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/orchestrator_agent.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/agents/orchestrator_agent.py
+@@ -38,7 +38,7 @@ class OrchestratorAgent(BaseAgent):
+     async def generate_summary(self) -> str:
+         client = genai.Client()
+         response = client.models.generate_content(
+-            model='gemini-2.0-flash',
++            model='gemini-2.5-flash',
+             contents=prompts.SUMMARY_COT_INSTRUCTIONS.replace(
+                 '{travel_data}', str(self.results)
+             ),
+@@ -50,7 +50,7 @@ class OrchestratorAgent(BaseAgent):
+         try:
+             client = genai.Client()
+             response = client.models.generate_content(
+-                model='gemini-2.0-flash',
++                model='gemini-2.5-flash',
+                 contents=prompts.QA_COT_PROMPT.replace(
+                     '{TRIP_CONTEXT}', str(self.travel_context)
+                 )
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/common/agent_executor.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/common/agent_executor.py
+index 8fcd64c..750cdf4 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/common/agent_executor.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/common/agent_executor.py
+@@ -59,6 +59,13 @@ class GenericAgentExecutor(AgentExecutor):
+                     event,
+                     (TaskStatusUpdateEvent | TaskArtifactUpdateEvent),
+                 ):
++                    # Re-stamp the proxied downstream event with THIS agent's
++                    # task/context ids — a2a-sdk's server TaskManager rejects a
++                    # mismatch with -32602. (The sample's comment intended this
++                    # id-rewrite but it was missing.)
++                    event = event.model_copy(
++                        update={'task_id': task.id, 'context_id': task.context_id}
++                    )
+                     await event_queue.enqueue_event(event)
+                 continue
+ 
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/common/workflow.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/common/workflow.py
+index 15c5b65..c471859 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/common/workflow.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/common/workflow.py
+@@ -93,7 +93,7 @@ class WorkflowNode:
+             agent_card = await self.get_planner_resource()
+         else:
+             agent_card = await self.find_agent_for_task()
+-        async with httpx.AsyncClient() as httpx_client:
++        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as httpx_client:
+             client = A2AClient(httpx_client, agent_card)
+ 
+             payload: dict[str, any] = {
+@@ -101,7 +101,8 @@ class WorkflowNode:
+                     'role': 'user',
+                     'parts': [{'kind': 'text', 'text': query}],
+                     'messageId': uuid4().hex,
+-                    'taskId': task_id,
++                    # taskId omitted: a2a-sdk 0.3.x rejects a message referencing a
++                    # not-yet-created task (-32001). Server creates a fresh task per call.
+                     'contextId': context_id,
+                 },
+             }
+diff --git a/samples/python/agents/a2a_mcp/src/a2a_mcp/mcp/server.py b/samples/python/agents/a2a_mcp/src/a2a_mcp/mcp/server.py
+index 30de2bc..c3510a4 100644
+--- a/samples/python/agents/a2a_mcp/src/a2a_mcp/mcp/server.py
++++ b/samples/python/agents/a2a_mcp/src/a2a_mcp/mcp/server.py
+@@ -18,7 +18,7 @@ from mcp.server.fastmcp.utilities.logging import get_logger
+ 
+ logger = get_logger(__name__)
+ AGENT_CARDS_DIR = 'agent_cards'
+-MODEL = 'models/embedding-001'
++MODEL = 'models/gemini-embedding-001'  # embedding-001/text-embedding-004 retired; this is what the key can access
+ SQLLITE_DB = 'travel_agency.db'
+ PLACES_API_URL = 'https://places.googleapis.com/v1/places:searchText'
+ 
+@@ -161,7 +161,10 @@ def serve(host, port, transport):  # noqa: PLR0915
+         logger.debug(
+             f'Found best match at index {best_match_index} with score {dot_products[best_match_index]}'
+         )
+-        return df.iloc[best_match_index]['agent_card']
++        # Return a JSON STRING (not a dict): the tool is declared -> str and
++        # callers do json.loads(result.content[0].text); a dict return lands in
++        # structuredContent, leaving content[0].text empty.
++        return json.dumps(df.iloc[best_match_index]['agent_card'])
+ 
+     @mcp.tool()
+     def query_places_data(query: str):

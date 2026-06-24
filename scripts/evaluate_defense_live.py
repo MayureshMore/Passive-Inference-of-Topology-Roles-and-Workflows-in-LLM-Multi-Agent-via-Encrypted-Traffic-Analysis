@@ -134,11 +134,19 @@ def main(args: argparse.Namespace) -> None:
     results: dict = {
         "task": TASK,
         "chance": chance,
+        "latency_overhead_note": (
+            "CONFOUNDED — the rate/pad defended sets were collected separately from the "
+            "baseline, so absolute trace durations are not a controlled comparison (pad "
+            "even reads negative). The latency_overhead fields are retained for the record "
+            "but are NOT a defense cost; only byte_overhead (bandwidth) is reported."
+        ),
         "none": {
             "accuracy": base_acc,
             "accuracy_ci_lo": base_ci["accuracy_ci_lo"],
             "accuracy_ci_hi": base_ci["accuracy_ci_hi"],
             "macro_f1": base_f1,
+            "macro_f1_ci_lo": base_ci["macro_f1_ci_lo"],
+            "macro_f1_ci_hi": base_ci["macro_f1_ci_hi"],
             "byte_overhead": 0.0, "latency_overhead": 0.0,
             "mean_trace_bytes": base_bytes, "mean_trace_dur_s": base_dur,
         },
@@ -158,13 +166,18 @@ def main(args: argparse.Namespace) -> None:
         byte_ohd = (d_bytes / base_bytes - 1.0) if base_bytes else 0.0
         lat_ohd = (d_dur / base_dur - 1.0) if base_dur else 0.0
         retention = (acc - chance) / (base_acc - chance) if base_acc > chance else 0.0
+        f1_retention = (f1 - chance) / (base_f1 - chance) if base_f1 > chance else 0.0
         results[name] = {
             "accuracy": acc,
             "accuracy_ci_lo": ci["accuracy_ci_lo"],
             "accuracy_ci_hi": ci["accuracy_ci_hi"],
             "macro_f1": f1,
+            "macro_f1_ci_lo": ci["macro_f1_ci_lo"],
+            "macro_f1_ci_hi": ci["macro_f1_ci_hi"],
             "acc_drop": base_acc - acc,
+            "macro_f1_drop": base_f1 - f1,
             "above_chance_retention": retention,
+            "above_chance_retention_f1": f1_retention,
             "byte_overhead": byte_ohd,
             "latency_overhead": lat_ohd,
             "mean_trace_bytes": d_bytes, "mean_trace_dur_s": d_dur,
@@ -184,20 +197,20 @@ def main(args: argparse.Namespace) -> None:
     print("\n" + "=" * 72)
     print("  LIVE C4 DEFENSE EVALUATION (measured on real defended captures)")
     print("=" * 72)
-    print(f"  {'defense':<8}{'attack acc [95% CI]':>24}{'drop':>8}"
-          f"{'signal kept':>13}{'byte ohd':>11}{'lat ohd':>10}")
-    print("  " + "-" * 74)
+    print(f"  {'defense':<8}{'macro-F1 [95% CI]':>26}{'acc':>8}{'F1 kept':>10}{'byte ohd':>11}")
+    print("  " + "-" * 70)
     for name in ("none", "rate", "pad"):
         if name not in results:
             continue
         r = results[name]
-        drop = r.get("acc_drop", 0.0)
-        ret = r.get("above_chance_retention")
-        ci = f"[{r.get('accuracy_ci_lo',0):.2f},{r.get('accuracy_ci_hi',0):.2f}]"
+        f1ci = f"[{r.get('macro_f1_ci_lo', 0):.2f},{r.get('macro_f1_ci_hi', 0):.2f}]"
+        ret = r.get("above_chance_retention_f1")
         ret_s = f"{100*ret:.0f}%" if ret is not None else "—"
-        print(f"  {name:<8}{r['accuracy']:>10.3f} {ci:>13}{drop:>8.3f}{ret_s:>13}"
-              f"{100*r['byte_overhead']:>10.0f}%{100*r['latency_overhead']:>9.0f}%")
-    print("  " + "-" * 74)
+        print(f"  {name:<8}{r['macro_f1']:>12.3f} {f1ci:>13}{r['accuracy']:>8.3f}{ret_s:>10}"
+              f"{100*r['byte_overhead']:>10.0f}%")
+    print("  " + "-" * 70)
+    print("  (macro-F1 is the headline metric; latency overhead omitted — confounded,")
+    print("   see latency_overhead_note in the JSON. Bandwidth = byte overhead only.)")
     print("  CONCLUSION (N=50/pair): both defenses are partially effective and")
     print("  expensive — neither is a clean win.  Size-padding (pad) and rate/count")
     print("  drop the attack by a similar amount (~0.12 acc each) and each leaves")

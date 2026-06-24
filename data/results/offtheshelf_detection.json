@@ -1,0 +1,69 @@
+{
+  "_status": "validated on real off-the-shelf traces",
+  "framing": "binary A2A-vs-background (correct tool)",
+  "detector": {
+    "positives": "data/processed (deployment-A A2A traffic)",
+    "negatives": "data/processed_background (multi-flow but non-SSE/non-agentic: web/API, JSON-RPC, multi-REST, file-download, direct-LLM)",
+    "model": "RandomForest(300, balanced)",
+    "cv": "5-fold stratified",
+    "seed": 42
+  },
+  "detection": {
+    "auc_a2a_vs_background": 1.0,
+    "background_fpr": 0.05,
+    "threshold": 0.01516666666666661,
+    "a2a_true_positive_rate_cv": 1.0,
+    "offtheshelf_detected_rate": 1.0,
+    "offtheshelf_detected_ci95": [
+      1.0,
+      1.0
+    ],
+    "n_pos": 600,
+    "n_bg": 150,
+    "n_offtheshelf": 150,
+    "background_per_category": {
+      "bg_api_rest": {
+        "n": 25,
+        "type": "soft",
+        "mean_a2a_prob": 0.0002666666666666667,
+        "flagged_as_a2a_at_T": 0.0
+      },
+      "bg_file_download": {
+        "n": 25,
+        "type": "soft",
+        "mean_a2a_prob": 0.0,
+        "flagged_as_a2a_at_T": 0.0
+      },
+      "bg_jsonrpc": {
+        "n": 25,
+        "type": "hard",
+        "mean_a2a_prob": 0.015866666666666664,
+        "flagged_as_a2a_at_T": 0.08
+      },
+      "bg_llm_direct": {
+        "n": 25,
+        "type": "hard",
+        "mean_a2a_prob": 0.0009333333333333333,
+        "flagged_as_a2a_at_T": 0.0
+      },
+      "bg_multi_rest": {
+        "n": 25,
+        "type": "hard",
+        "mean_a2a_prob": 0.013199999999999998,
+        "flagged_as_a2a_at_T": 0.2
+      },
+      "bg_web_browse": {
+        "n": 25,
+        "type": "soft",
+        "mean_a2a_prob": 0.0016,
+        "flagged_as_a2a_at_T": 0.04
+      }
+    }
+  },
+  "caveat": "Background negatives are MULTI-FLOW but NON-SSE / NON-AGENTIC (web/API, JSON-RPC, multi-REST, file-download, direct-LLM). The supervised detector separates A2A from them via A2A's SSE-streaming + orchestrator fan-out signature \u2014 it separates even the PARALLEL multi-REST negative, so the result is not merely a concurrent-vs-sequential artifact. But EVERY negative is non-agentic, so this measures 'A2A vs NON-AGENTIC traffic', NOT 'A2A vs other agent frameworks'. Separability from other AGENTIC, SSE-based frameworks (AutoGen, CrewAI, ...) is UNTESTED \u2014 the sterner future test. See detection.background_per_category: the hard JSON-RPC / multi-REST / LLM-direct categories all score ~0 A2A-probability.",
+  "workflow_novelty_context": {
+    "auc_offtheshelf_vs_background": 0.4696666666666667,
+    "note": "WRONG TOOL \u2014 workflow-classifier max-confidence as a novelty score. a2a_mcp is a different workflow (travel), so its A-workflow confidence is low (AUC < 0.5, below chance vs background). Shown to justify the binary A2A-vs-background framing above; not a usable detector here."
+  },
+  "scope_note": "DETECTION ONLY. a2a_mcp labels do not align with our taxonomy, so this is not a role/workflow transfer result."
+}

@@ -2,6 +2,8 @@
 
 A network traffic-analysis attack on LLM multi-agent systems communicating via the [A2A protocol](https://a2aproject.org). The system reconstructs **workflow class**, **agent roles**, and **system topology** from packet metadata alone — no payload inspection required.
 
+📊 **Headline results, with scope and caveats, are in [RESULTS.md](RESULTS.md).**
+
 ---
 
 ## Overview
@@ -72,6 +74,29 @@ agents/
 
 Agents run on ports 8000–8003. Each agent is backed by a local [Ollama](https://ollama.com) instance — inference never leaves the local machine, ensuring only A2A control/response traffic crosses the network.
 
+### Deployment variants (disentanglement)
+
+To separate *what leaks* from *how a particular system happens to be built*, the same task
+taxonomy — identical workflows, prompts, and label space — is implemented several ways. A
+classifier trained on one deployment is tested on another; whichever change breaks the
+fingerprint tells us what the signal actually depends on.
+
+| Deployment | Where | What differs from A | Isolates |
+|------------|-------|---------------------|----------|
+| **A** (headline) | `agents/` | — (llama3.2:3b, `asyncio.gather` orchestrator) | baseline |
+| **B** | `agents_b/` | different model **and** call logic (qwen2.5:7b, sequential) | model + logic together |
+| **A-model** | `data/processed_amodel_*` | A's logic with B's model | model only |
+| **B-logic** | `data/processed_blogic_*` | B's logic with A's model | logic only |
+| **C / LangGraph** | `agents_langgraph/` | A's specialists, prompts, and call structure unchanged — only the **orchestration runtime** swapped to a LangGraph `StateGraph` | runtime only |
+
+This makes the central finding precise: the fingerprint is **invariant to the model and to
+the orchestration runtime** (A→C transfers near A's within-deployment ceiling), but
+**sensitive to the inter-agent call structure** (A→B collapses). Deployment **C is a
+runtime-invariance control, not a cross-framework generalization claim** — generalization
+across independently-structured frameworks (AutoGen, CrewAI, …) remains future work. A
+companion diagnostic ([`scripts/diagnose_runtime_traffic.py`](scripts/diagnose_runtime_traffic.py))
+confirms A and C emit near-identical traffic **structure** and differ only in **timing**.
+
 ### Topologies
 
 ```
@@ -131,7 +156,7 @@ Key per-flow features include packet size distribution, inter-arrival timing, di
 | 1-D CNN | `models/cnn1d.py` | Operates on the burst sequence; data-starved at the current ~600-trace scale — reported as a scale-check, not a headline |
 | Transformer | `models/transformer.py` | Gap-aware attention over the burst sequence; data-starved at current scale (learns role, where it has ~1,750 samples) — scale-check only |
 
-The two tree models are the headline attackers; the two deep sequence models are retained as a data-scale sensitivity check and would need ~1,500–2,000 traces per class to compete.
+The two tree models are the headline attackers; the two deep sequence models are retained as a data-scale sensitivity check and would need ~1,500–2,000 traces per class to compete. Their full architectures, burst-sequence input representation, parameter counts, and training budget — documented to pre-empt the "untuned models" critique — are in [docs/DEEP_MODEL_APPENDIX.md](docs/DEEP_MODEL_APPENDIX.md).
 
 ---
 
@@ -145,6 +170,31 @@ Two groups of defenses are implemented and evaluated **live on defended captures
 **Group 2 — A2A-specific** (no analogue in the website-fingerprinting setting):
 - `defense/scheduling.py` — randomized, jittered, reordered delegation scheduling to blur inter-agent timing and structure
 - `defense/dummy.py` — injected dummy agent interactions (spurious sub-calls) that obscure genuine collaboration
+
+---
+
+## Off-the-shelf system (external corroboration)
+
+Beyond the researcher-built deployments, one **externally-authored** multi-agent system —
+Google's [`a2a_mcp`](https://github.com/a2aproject/a2a-samples) travel-planning sample (an
+MCP agent registry + orchestrator + LangGraph planner + ADK air/hotel/car specialists, all
+talking A2A) — is captured to test the attack on a system **we did not build**. Its labels
+do not align with our taxonomy, so it corroborates **detection** and **topology
+observability** only — **not** a role/workflow transfer number.
+
+```
+scripts/collect_offtheshelf.sh          drive the orchestrator over A2A + capture (ports 10100–10105)
+scripts/extract_offtheshelf.py          features (reuses the core extractor; IPv4 AND IPv6 — the sample binds ::1)
+scripts/evaluate_offtheshelf_detection.py   run the A-trained open-world detector on it
+scripts/analyze_offtheshelf_topology.py     recover the agent connection graph from flow headers alone
+```
+
+The first capture's topology recovers cleanly as **hub-and-spoke** — the MCP registry is the
+hub (every agent queries it) with the specialists as leaves — from headers only, no payload,
+no ML. The external setup, the compatibility patches, and the multi-turn driver are recorded
+under [`third_party/a2a_mcp/`](third_party/a2a_mcp/) and
+[docs/PHASE5_A2A_MCP_PATCHES.md](docs/PHASE5_A2A_MCP_PATCHES.md). Capture is Gemini
+free-tier quota-limited (≈2 traces/run); accumulate over daily runs.
 
 ---
 
@@ -302,6 +352,21 @@ python scripts/evaluate_defense_live.py \
   --pad      data/processed_defense_pad  --pad-raw      data/raw_defense_pad
 ```
 
+### Cross-deployment & cross-framework
+
+```bash
+# A vs B (different model + logic) + the model-only / logic-only disentanglement
+python scripts/evaluate_cross_deployment.py --dir-a data/processed --dir-b data/processed_b_sdk
+python scripts/evaluate_model_vs_logic.py
+
+# A vs C (LangGraph runtime swap) — runtime-invariance CONTROL (relabels the B-slot as C,
+# suppresses the A↔B "generalizes" verdict, which is false for a control)
+python scripts/evaluate_cross_deployment.py --dir-a data/processed \
+    --dir-b data/processed_langgraph --label-b C --control \
+    --out data/results/cross_framework.json
+python scripts/diagnose_runtime_traffic.py        # A-vs-C structure-vs-timing diagnostic
+```
+
 ### Cross-Network Evaluation (C5 — US ⇄ India WAN)
 
 The full step-by-step WAN procedure (both hosts, capture vantage, gates, collection, evaluation, troubleshooting) lives in [docs/C5_WAN_RUNBOOK.md](docs/C5_WAN_RUNBOOK.md). In short — serve the specialist agents on the remote (India) host, drive the orchestrator from the local (US) host so A2A crosses the VPN, and capture **post-decapsulation on the tunnel interface** (not the physical NIC):
@@ -356,20 +421,27 @@ Raw pcap files and trained models are gitignored. Only metadata-only CSV traces 
 ## Project Structure
 
 ```
-agents/       A2A agent implementations (orchestrator, executor, retriever, validator) — deployment A
-agents_b/     Second, deliberately different deployment (B) for cross-deployment / model-vs-logic disentanglement
-workflows/    Workflow prompt generators (research_retrieval, code_review, data_analysis, support_triage)
-capture/      Packet capture automation (tcpdump/tshark wrappers, trace labeler, automation driver)
-features/     Feature extraction pipeline (burst segmentation, per-flow, per-system, flat vector)
-models/       ML models: Random Forest, GBT, 1D-CNN, Transformer
-defense/      Traffic-shaping defenses (padding, scheduling randomization, dummy interactions)
-evaluation/   Evaluation scripts (closed-world, open-world, cross-network, metrics)
-scripts/      Runnable entry points (PoC, collect, train, evaluate, ablation)
-tests/        Unit + regression tests (features, defense, metrics, stats/SSE, deep-model shapes)
-configs/      YAML configs (testbed hosts, topology definitions, workflow assignments)
-data/         GITIGNORED — raw pcaps, features, model checkpoints
-logs/         Collection and training logs
+agents/           A2A agent implementations (orchestrator, executor, retriever, validator) — deployment A
+agents_b/         Second, deliberately different deployment (B) — cross-deployment / model-vs-logic disentanglement
+agents_langgraph/ Deployment C — LangGraph runtime swap (reuses A's specialists; runtime-invariance control)
+workflows/        Workflow prompt generators (research_retrieval, code_review, data_analysis, support_triage)
+capture/          Packet capture automation (tcpdump/tshark wrappers, trace labeler, automation driver)
+features/         Feature extraction pipeline (burst segmentation, per-flow, per-system, flat vector; IPv4 + IPv6)
+models/           ML models: Random Forest, GBT, 1D-CNN, Transformer
+defense/          Traffic-shaping defenses (padding, scheduling randomization, dummy interactions)
+evaluation/       Evaluation scripts (closed-world, open-world, cross-network, metrics)
+scripts/          Runnable entry points (PoC, collect, train, evaluate, cross-deployment, off-the-shelf, reproduce)
+tests/            Unit + regression tests (features, defense, metrics, stats/SSE, deep-model shapes)
+configs/          YAML configs (testbed hosts, topology definitions, workflow assignments)
+docs/             Runbooks & appendices (C5 WAN, deep-model appendix, cross-framework plan, a2a_mcp patches)
+third_party/      External a2a_mcp compat patch + driver for the off-the-shelf capture (no vendored code)
+data/             GITIGNORED (except data/results/) — raw pcaps, features, model checkpoints
+logs/             Collection and training logs
 ```
+
+See [DATA.md](DATA.md) for the published feature/pcap archive layout and reproduction
+inputs, and the [docs/](docs/) directory for the C5 WAN runbook, the deep-model appendix,
+the cross-framework plan, and the off-the-shelf (`a2a_mcp`) setup notes.
 
 ---
 
@@ -391,6 +463,7 @@ If you use this code or the methodology in your research, please cite:
 
 ## License
 
-This project is released for academic research purposes. See [LICENSE](LICENSE) for details.
+This project is released for **academic research purposes**. (A formal `LICENSE` file —
+e.g. MIT, BSD-3, or CC-BY for the data — should be added before public release.)
 
 All experiments were conducted on researcher-owned infrastructure. This code must not be used to monitor or infer the activities of multi-agent systems without explicit authorization from the system owner.

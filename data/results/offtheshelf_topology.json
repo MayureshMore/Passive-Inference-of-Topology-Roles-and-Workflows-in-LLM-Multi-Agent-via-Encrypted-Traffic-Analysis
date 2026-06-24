@@ -1,0 +1,87 @@
+{
+  "_status": "validated on real off-the-shelf pcaps",
+  "raw_dir": "data/raw_offtheshelf",
+  "n_pcaps": 150,
+  "agents": {
+    "10100": "mcp",
+    "10101": "orchestrator",
+    "10102": "planner",
+    "10103": "air_ticketing",
+    "10104": "hotel",
+    "10105": "car_rental"
+  },
+  "nodes": {
+    "mcp": {
+      "inbound_flows": 2582,
+      "inbound_bytes": 8435016,
+      "distinct_callers": 2139
+    },
+    "planner": {
+      "inbound_flows": 981,
+      "inbound_bytes": 5708464,
+      "distinct_callers": 981
+    },
+    "orchestrator": {
+      "inbound_flows": 150,
+      "inbound_bytes": 5129755,
+      "distinct_callers": 150
+    },
+    "air_ticketing": {
+      "inbound_flows": 23,
+      "inbound_bytes": 162184,
+      "distinct_callers": 23
+    },
+    "car_rental": {
+      "inbound_flows": 24,
+      "inbound_bytes": 125192,
+      "distinct_callers": 24
+    },
+    "hotel": {
+      "inbound_flows": 19,
+      "inbound_bytes": 86052,
+      "distinct_callers": 19
+    }
+  },
+  "edges": [
+    {
+      "from": "ephemeral/external",
+      "to": "mcp",
+      "flows": 2582,
+      "bytes": 8435016
+    },
+    {
+      "from": "ephemeral/external",
+      "to": "planner",
+      "flows": 981,
+      "bytes": 5708464
+    },
+    {
+      "from": "ephemeral/external",
+      "to": "orchestrator",
+      "flows": 150,
+      "bytes": 5129755
+    },
+    {
+      "from": "ephemeral/external",
+      "to": "air_ticketing",
+      "flows": 23,
+      "bytes": 162184
+    },
+    {
+      "from": "ephemeral/external",
+      "to": "car_rental",
+      "flows": 24,
+      "bytes": 125192
+    },
+    {
+      "from": "ephemeral/external",
+      "to": "hotel",
+      "flows": 19,
+      "bytes": 86052
+    }
+  ],
+  "hub": "mcp",
+  "topology_class": "hub-and-spoke / hierarchical (dominant registry/coordination hubs, specialist leaves)",
+  "limitations": "Single-host loopback: agent callers use ephemeral ports and share 127.0.0.1, so most callers show as 'ephemeral/external' \u2014 the recoverable signal is the service endpoints + fan-in (registry/orchestrator hubs, specialist leaves). Multi-host deployments (distinct IP per agent) yield fully-attributed agent->agent edges with the same method.",
+  "scope_note": "TOPOLOGY OBSERVABILITY only \u2014 qualitative structural point, no classifier."
+}
