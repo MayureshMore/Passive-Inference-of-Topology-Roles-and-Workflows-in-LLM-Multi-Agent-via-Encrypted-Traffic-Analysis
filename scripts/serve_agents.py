@@ -42,16 +42,20 @@ from agents_b.validator_b import ValidatorB
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# Deployment A uses 8001-8003; deployment B uses 8011-8013 (matches the pilots).
+# Deployment A uses 8001-8003; B uses 8011-8013; C (LangGraph) uses 8031-8033.
+# Deployment C reuses A's specialist classes unchanged (only its orchestrator,
+# driven by the collector, is LangGraph); these are the specialist servers.
 PORTS = {
     "a": {"executor": 8001, "retriever": 8002, "validator": 8003},
     "b": {"executor": 8011, "retriever": 8012, "validator": 8013},
+    "langgraph": {"executor": 8031, "retriever": 8032, "validator": 8033},
 }
 CLASSES = {
     "a": {"executor": ExecutorAgent, "retriever": RetrieverAgent, "validator": ValidatorAgent},
     "b": {"executor": ExecutorB, "retriever": RetrieverB, "validator": ValidatorB},
+    "langgraph": {"executor": ExecutorAgent, "retriever": RetrieverAgent, "validator": ValidatorAgent},
 }
-DEFAULT_MODEL = {"a": "llama3.2:3b", "b": "qwen2.5:7b"}
+DEFAULT_MODEL = {"a": "llama3.2:3b", "b": "qwen2.5:7b", "langgraph": "llama3.2:3b"}
 
 
 def _downstream(role: str, topology: str, ports: dict[str, int]) -> list[str]:
@@ -108,7 +112,7 @@ def _parse() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="C5 WAN harness — serve specialist agents (remote/India host)")
     p.add_argument("--topology", required=True, choices=["star", "chain", "mesh"],
                    help="Wire specialists for this topology — MUST match collect_wan --topology on the US host")
-    p.add_argument("--deployment", choices=["a", "b"], default="a")
+    p.add_argument("--deployment", choices=["a", "b", "langgraph"], default="a")
     p.add_argument("--model", default=None, help="Override Ollama model (default per deployment)")
     p.add_argument("--num-predict", type=int, default=256, dest="num_predict",
                    help="Cap Ollama output tokens (match the local collection: 256; 0 = unlimited)")
