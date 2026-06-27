@@ -170,13 +170,18 @@ number.** `data/results/offtheshelf_{detection,topology}.json`.
   a2a_mcp is **detected as A2A at 100%** [100%, 100%] at a 5% background-FPR operating point.
   - *Caveat (identical to the `caveat` field in the JSON):* the negatives are **multi-flow
     but non-SSE / non-agentic** (web/API, JSON-RPC, multi-REST, file-download, direct-LLM).
-    The detector separates A2A via its **SSE-streaming + orchestrator fan-out signature** — it
-    separates even the hard JSON-RPC / multi-REST / LLM-direct categories (cross-validated
-    A2A-probability in `background_per_category`: **0.016 / 0.013 / 0.001**). But **every
-    negative is non-agentic**, so this measures **"A2A vs non-agentic traffic," not "A2A vs
-    other agent frameworks"**; separability from other **agentic, SSE-based** frameworks
-    (AutoGen, CrewAI, …) is **untested** — the sterner future test. a2a_mcp **carries the
-    same structural A2A fingerprint** and is detected at the standard operating point.
+    The detector separates A2A via its **SSE-streaming + orchestrator fan-out signature**.
+    On *average* the hard categories score near-zero A2A-probability
+    (`background_per_category.mean_a2a_prob`: 0.016 / 0.013 / 0.001), **but at the 5%-FPR
+    operating threshold they sit on the A2A boundary** — `flagged_as_a2a_at_T` flags
+    **multi-REST 20%** and **JSON-RPC 8%** (≈0% for the soft categories), so the hard
+    negatives consume almost the entire false-positive budget. **The AUC 1.000 is a perfect
+    ranking on only 75 hard negatives (25/category); since those categories already cross the
+    operating threshold at 8–20% (`flagged_as_a2a_at_T`), the 1.000 is fragile and would
+    likely not survive more hard-negative data.** And **every negative is non-agentic**, so
+    this measures **"A2A vs non-agentic traffic," not "A2A vs other agent frameworks"**;
+    separability from other **agentic, SSE-based** frameworks (AutoGen, CrewAI, …) is
+    **untested** — the sterner future test.
   - The naive workflow-novelty detector **fails** here (AUC 0.47 < 0.5 — a2a_mcp is a
     different workflow), which is why the binary framing is used; recorded as context.
 - **Topology:** **hub-and-spoke / hierarchical**, hub = **MCP registry** (every agent
