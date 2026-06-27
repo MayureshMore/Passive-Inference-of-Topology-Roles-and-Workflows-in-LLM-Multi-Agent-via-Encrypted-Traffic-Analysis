@@ -208,32 +208,30 @@ venv/bin/python scripts/extract_features.py \
   --raw data/raw_wan --out data/processed_wan --scapy
 ```
 
-### D.2 — Cross-network evaluation (LAN → WAN transfer; the headline C5 result)
+### D.2 — Cross-network evaluation (LAN→WAN transfer + internal baselines; the headline C5 result)
 
 ```bash
-venv/bin/python scripts/evaluate_cross_network.py \
+venv/bin/python scripts/evaluate_c5.py \
   --local data/processed --wan data/processed_wan \
   --tasks workflow role parallelism topology
-# → data/results/cross_network.json  + data/results/cross_network/cross_network_rf_<task>.json
+# → data/results/c5_cross_network.json  + data/results/figures/c5_cross_network.png
 ```
 
-This trains on the LAN testbed (`data/processed`) and tests on the WAN capture
-(`data/processed_wan`), reporting per-task accuracy and macro-F1.
+One command reports three numbers per task, each with 95% bootstrap CIs:
 
-### D.3 — WAN-internal CV baseline + C5 figure  *(tooling to wire up — see note)*
+1. **LAN-internal** — RF group-safe 5-fold CV on the LAN testbed (in-deployment ceiling).
+2. **WAN-internal** — RF group-safe 5-fold CV on the WAN capture (WAN-vantage ceiling).
+3. **LAN→WAN transfer** — RF trained on LAN, tested on WAN (the cross-network result).
 
-To interpret the transfer numbers we also report a **group-safe CV baseline
-trained and tested within the WAN data** (the WAN-vantage ceiling), plus a
-combined C5 figure (LAN-internal vs WAN-internal vs LAN→WAN transfer, with 95%
-bootstrap CIs). `evaluate_cross_network.py` currently does only the transfer
-direction; the internal-baseline flag + figure are a small addition —
-**ping to enable**, then:
+The WAN-internal baseline is the key control: it separates "the WAN vantage is
+impoverished" (low WAN-internal) from "the model doesn't transfer vantages"
+(high WAN-internal but low LAN→WAN). `data/results/c5_cross_network.json` is the
+**single source of truth** cited by [`RESULTS.md`](../RESULTS.md) §4 and the paper.
 
-```bash
-# (planned) venv/bin/python scripts/evaluate_cross_network.py \
-#   --local data/processed --wan data/processed_wan --wan-internal
-# (planned) regenerate the C5 panel via scripts/make_paper_artifacts.py
-```
+> The earlier `scripts/evaluate_cross_network.py` (which wrote
+> `data/results/cross_network.json` — transfer-only, no CIs, an earlier n=395 run)
+> is **deprecated** and now forwards to `evaluate_c5.py`, so the canonical file
+> above is the only authoritative C5 result.
 
 ---
 
@@ -271,8 +269,8 @@ direction; the internal-baseline flag + figure are a small addition —
 
 - `data/raw_wan/` ≈ 600 pcaps (50 × 4 workflows × 3 topologies, minus any loss).
 - `data/processed_wan/labels.json` + feature matrices present.
-- `data/results/cross_network.json` with per-task LAN→WAN accuracy & macro-F1.
-- (with D.3 enabled) WAN-internal CV baseline + C5 figure for the writeup.
+- `data/results/c5_cross_network.json` + `data/results/figures/c5_cross_network.png`:
+  per-task LAN-internal, WAN-internal, and LAN→WAN macro-F1 with 95% CIs.
 
 ---
 
