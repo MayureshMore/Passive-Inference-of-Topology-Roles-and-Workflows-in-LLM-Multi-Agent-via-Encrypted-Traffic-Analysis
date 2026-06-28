@@ -2,6 +2,8 @@
 
 A network traffic-analysis attack on LLM multi-agent systems communicating via the [A2A protocol](https://a2aproject.org). The system reconstructs **workflow class**, **agent roles**, and **system topology** from packet metadata alone — no payload inspection required.
 
+🚀 **New here? [START_HERE.md](START_HERE.md) is the one-command-per-step quickstart** (install → run → capture → extract → train → evaluate → reproduce).
+
 📊 **Headline results, with scope and caveats, are in [RESULTS.md](RESULTS.md).**
 
 ---
