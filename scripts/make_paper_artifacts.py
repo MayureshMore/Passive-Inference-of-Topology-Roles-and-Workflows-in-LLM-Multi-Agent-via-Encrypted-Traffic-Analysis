@@ -202,6 +202,96 @@ def fig_defense() -> Path | None:
     return p
 
 
+def fig_defense_curve() -> Path | None:
+    """Overhead–accuracy CURVE (from scripts/sweep_defenses.py → defense_curve.json).
+
+    Left: size-padding — macro-F1 vs byte overhead (sim sweep + live pad anchor).
+    Right: timing-spacing — macro-F1 vs schedule-derived latency overhead.
+    """
+    dc = _load(RESULTS / "defense_curve.json")
+    if not dc or not dc.get("rows"):
+        return None
+    rows = dc["rows"]
+    chance = dc.get("chance", 0.25)
+    live = dc.get("measured_live", {})
+    none = next((r for r in rows if r["defense"] == "none_sim"), None)
+    nf1 = none["attack_macro_f1"] if none else None
+
+    def series(defense: str, xkey: str):
+        rs = sorted((r for r in rows if r["defense"] == defense), key=lambda r: r["param"])
+        x = [100 * r[xkey] for r in rs]
+        f1 = [r["attack_macro_f1"] for r in rs]
+        err = [[max(0, r["attack_macro_f1"] - r["ci_low"]) for r in rs],
+               [max(0, r["ci_high"] - r["attack_macro_f1"]) for r in rs]]
+        return x, f1, err
+
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
+    # left — size padding vs byte overhead
+    x, f1, err = series("pad_size_sim", "byte_overhead")
+    a1.errorbar(x, f1, yerr=err, marker="o", color="#3182bd", capsize=3, label="pad sweep (sim)")
+    if nf1 is not None:
+        a1.scatter([0], [nf1], color="#444", zorder=5, label="undefended")
+    if "pad" in live:
+        a1.scatter([100 * live["pad"]["byte_overhead"]], [live["pad"]["macro_f1"]],
+                   marker="*", s=200, color="#e6550d", zorder=6, label="pad live (measured)")
+    a1.axhline(chance, ls="--", color="crimson", lw=1.2, label=f"chance ({chance:.2f})")
+    a1.set_xlabel("byte overhead (%)"); a1.set_ylabel("attack macro-F1 (95% CI)")
+    a1.set_ylim(0, max(0.72, (nf1 or 0.66) + 0.08)); a1.set_title("Size padding (sweep cell size)")
+    a1.legend(fontsize=7, loc="lower left")
+    # right — timing spacing vs schedule-derived latency overhead
+    x, f1, err = series("rate_timing_sim", "latency_overhead")
+    a2.errorbar(x, f1, yerr=err, marker="s", color="#31a354", capsize=3, label="timing sweep (sim)")
+    if nf1 is not None:
+        a2.scatter([0], [nf1], color="#444", zorder=5, label="undefended")
+    a2.axhline(chance, ls="--", color="crimson", lw=1.2, label=f"chance ({chance:.2f})")
+    if "rate" in live:
+        a2.text(0.5, 0.06,
+                f"live 'rate' F1={live['rate']['macro_f1']:.2f} is a different\n"
+                f"(count-based) mechanism — not on this timing axis",
+                transform=a2.transAxes, fontsize=6.5, ha="center", color="#666")
+    a2.set_xlabel("latency overhead (%, schedule-derived)")
+    a2.set_title("Timing spacing (sweep min-gap)"); a2.legend(fontsize=7, loc="lower left")
+    fig.suptitle("C4 defenses: overhead–accuracy curves — both are expensive and plateau "
+                 "well above chance (~65% of signal kept)")
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    p = FIGS / "defense_curve.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
+def fig_offtheshelf_fingerprint() -> Path | None:
+    """Task #4 — role fingerprint replicated on the independent a2a_mcp system."""
+    d = _load(RESULTS / "offtheshelf_fingerprint.json")
+    if not d or "primary_role_closed_world" not in d:
+        return None
+    pr = d["primary_role_closed_world"]
+    order = [("role_6way", "role (6-way)"), ("coordinator_vs_specialist", "coord vs\nspecialist (2-way)")]
+    names, f1v, chances, err = [], [], [], []
+    for key, lbl in order:
+        r = pr.get(key)
+        if not r:
+            continue
+        names.append(lbl); f1v.append(r["macro_f1"]); chances.append(r["chance"])
+        err.append((max(0, r["macro_f1"] - r["ci_lo"]), max(0, r["ci_hi"] - r["macro_f1"])))
+    fig, ax = plt.subplots(figsize=(6.6, 4.3))
+    xs = np.arange(len(names))
+    ax.bar(xs, f1v, 0.55, yerr=np.array(err).T, capsize=5, color=["#3182bd", "#31a354"])
+    for i, (x, c) in enumerate(zip(xs, chances)):
+        ax.hlines(c, x - 0.3, x + 0.3, colors="crimson", linestyles="--", lw=1.4)
+        ax.text(x, f1v[i] + 0.035, f"{f1v[i]:.2f}", ha="center", fontsize=10, fontweight="bold")
+        ax.text(x, c + 0.01, f"chance {c:.2f}", ha="center", fontsize=7, color="crimson")
+    ax.set_xticks(xs); ax.set_xticklabels(names)
+    ax.set_ylabel("macro-F1 (GBT, group-safe CV, 95% CI)"); ax.set_ylim(0, 1.12)
+    sec = d.get("secondary_cross_impl_shared_abstraction", {})
+    rec = sec.get("specialist_recall_on_A")
+    sub = (f"cross-impl a2a_mcp→A specialist recall = {rec:.2f}   |   "
+           "workflow not separable (LLM-planned routing)") if rec is not None else ""
+    ax.set_title("Role fingerprint REPLICATES on an independent system (Google a2a_mcp)\n"
+                 + sub, fontsize=9)
+    fig.tight_layout()
+    p = FIGS / "offtheshelf_fingerprint.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
 # ── Markdown bundle ───────────────────────────────────────────────────────────
 
 def write_markdown(figs: dict[str, Path | None]) -> Path:
@@ -277,6 +367,8 @@ def main() -> None:
         "Closed-world headline":      fig_closed_world(),
         "Disentanglement":            fig_disentanglement(),
         "Defense cost/benefit":       fig_defense(),
+        "Defense overhead–accuracy curve": fig_defense_curve(),
+        "Off-the-shelf role fingerprint":  fig_offtheshelf_fingerprint(),
     }
     md = write_markdown(figs)
     print("Wrote:")

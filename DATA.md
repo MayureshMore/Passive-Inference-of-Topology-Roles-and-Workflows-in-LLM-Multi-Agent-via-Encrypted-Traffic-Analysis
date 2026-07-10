@@ -18,16 +18,22 @@ figures you download a published data archive and unpack it into `data/`.
 | `a2a-raw-pcaps.zip` | `data/raw*/` — header-only `.pcap` captures (96-byte snaplen, metadata only, no payload) + `.json` label sidecars | large (GBs) | live-defense **byte/latency overhead** only, and re-extracting features from scratch |
 
 **Archive location:** `<ARCHIVE_URL — to be filled in after the Zenodo/figshare/OSF upload>`
+**`a2a-features.zip` SHA-256:** `<SHA256 — from dist/SHA256SUMS.txt, filled in after upload>`
 
-Most reproduction needs only `a2a-features.zip`. Download the raw-pcap archive
-only if you want the C4 defense *overhead* numbers (which are measured from the
-wire) or intend to re-run feature extraction.
+Most reproduction needs only `a2a-features.zip` (≈50–80 MB unpacked). Download the
+raw-pcap archive only if you want the C4 defense *overhead* numbers (which are measured
+from the wire) or intend to re-run feature extraction.
 
-## Unpack
+## Verify, then unpack
 
-From the repository root:
+From the repository root, **verify the download integrity first** (the release ships a
+`SHA256SUMS.txt` alongside the zips; the feature checksum is also pasted above):
 
 ```bash
+# verify (matches the checksum in the release / above)
+shasum -a 256 a2a-features.zip        # compare against the SHA-256 above
+#   or, against the shipped manifest:  shasum -a 256 -c SHA256SUMS.txt
+
 # features only (enough for the deterministic table/figure reproduction)
 unzip a2a-features.zip -d .        # creates data/processed*/...
 
@@ -60,11 +66,12 @@ Then follow **Reproducing the paper** in [README.md](README.md).
 To rebuild the archives from a populated `data/` directory:
 
 ```bash
-bash scripts/package_data.sh            # writes dist/a2a-features.zip + dist/a2a-raw-pcaps.zip
+bash scripts/package_data.sh   # writes dist/a2a-features.zip, dist/a2a-raw-pcaps.zip, dist/SHA256SUMS.txt
 ```
 
-Upload the two zips to the data host, then paste the DOI/URL into the
-**Archive location** line above and into the header of `scripts/reproduce.sh`.
+Upload the two zips **and `dist/SHA256SUMS.txt`** to the data host, then paste the DOI/URL
+into the **Archive location** line above (and the header of `scripts/reproduce.sh`), and the
+`a2a-features.zip` SHA-256 into the **SHA-256** line above so downloaders can verify.
 
 ## Provenance & ethics
 

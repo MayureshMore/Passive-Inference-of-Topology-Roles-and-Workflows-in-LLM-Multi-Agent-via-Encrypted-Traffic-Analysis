@@ -78,6 +78,7 @@ in [DATA.md](DATA.md). Add `--full-suite` to run the whole evaluation suite (RF+
 
 | You want to… | Go to |
 |---|---|
+| Rebuild the **entire project from scratch** (datasets → results) | [RECREATE.md](RECREATE.md) |
 | Understand the results, scope, and honest caveats | [RESULTS.md](RESULTS.md) |
 | Get the data archive + reproduction inputs | [DATA.md](DATA.md) |
 | Run the US⇄India WAN cross-network experiment (C5) | [docs/C5_WAN_RUNBOOK.md](docs/C5_WAN_RUNBOOK.md) |

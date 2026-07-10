@@ -146,6 +146,12 @@ else
     stage "SSE size analysis vs 512 B pad cell (needs raw pcaps; logs only)"
     if have "data/raw" "data/raw_defense_pad"; then
         run $PY scripts/analyze_sse_sizes.py; fi
+    stage "defense overhead–accuracy sweep (curve; heavy — re-extracts the base capture per level)"
+    if have "$A/labels.json" "data/raw"; then
+        run $PY scripts/sweep_defenses.py --raw data/raw --processed "$A"; fi
+    stage "off-the-shelf role fingerprint (Task #4 — a2a_mcp replication; needs off-the-shelf pcaps)"
+    if have "data/raw_offtheshelf" "$A/labels.json"; then
+        run $PY scripts/evaluate_offtheshelf_fingerprint.py --raw data/raw_offtheshelf --a-role "$A"; fi
     stage "paper artifacts"
     run $PY scripts/make_paper_artifacts.py
 fi

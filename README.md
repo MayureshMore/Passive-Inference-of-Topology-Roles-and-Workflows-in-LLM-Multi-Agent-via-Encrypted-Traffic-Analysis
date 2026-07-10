@@ -6,6 +6,8 @@ A network traffic-analysis attack on LLM multi-agent systems communicating via t
 
 📊 **Headline results, with scope and caveats, are in [RESULTS.md](RESULTS.md).**
 
+🔁 **Rebuilding the whole project from scratch (datasets → results) is in [RECREATE.md](RECREATE.md).**
+
 ---
 
 ## Overview

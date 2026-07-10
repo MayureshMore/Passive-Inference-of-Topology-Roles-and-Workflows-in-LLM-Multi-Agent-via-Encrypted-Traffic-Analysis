@@ -30,11 +30,17 @@ across folds). `data/results/closed_world/`.
 Workflow and agent role — the real attack targets — are recovered far above chance from
 metadata alone.
 
-**Deep models (footnote, data-starved at N=600):** CNN/Transformer underperform the trees
-(e.g. workflow CNN 0.228 / Transformer 0.100; role Transformer 0.684). Architectures,
-input representation, parameter counts, and training budget are documented in
-[`docs/DEEP_MODEL_APPENDIX.md`](docs/DEEP_MODEL_APPENDIX.md) to pre-empt an "untuned models"
-read — the gap is sample size, not tuning. They are **off by default** in `reproduce.sh`.
+**Deep models — NOT a fair baseline (data-starved at N=600).** At this scale the
+CNN/Transformer collapse toward single-class prediction, so their macro-F1 lands *at or
+below chance* on several tasks (workflow CNN 0.228 / Transformer 0.100; role Transformer
+0.684). **These sub-chance numbers are a data-scale sensitivity check, not a fair
+trees-vs-deep comparison** — they show the sequence models are *starved*, not that deep
+architectures are worse than trees on this problem. Architectures, input representation,
+parameter counts, and training budget are in
+[`docs/DEEP_MODEL_APPENDIX.md`](docs/DEEP_MODEL_APPENDIX.md) (to pre-empt an "untuned models"
+read — the gap is sample size, not tuning); they would need ~1,500–2,000 traces/class to be
+comparable. **Off by default** in `reproduce.sh` (opt in with `--with-deep`), and excluded
+from every headline claim.
 
 ---
 
@@ -109,6 +115,35 @@ a ~30% bandwidth cost. (macro-F1 ≈ accuracy here — predictions stay balanced
 classes — so the metric choice does not change the conclusion. Latency overhead is
 **excluded as confounded**.)
 
+### 5.1 Overhead–accuracy curve (defense sweep)
+
+The two rows above are single operating points; sweeping each defense across strengths turns
+them into a curve. `data/results/defense_curve.json` +
+[`figures/defense_curve.png`](data/results/figures/defense_curve.png). The method is
+identical to the live eval (fixed RF attacker trained on undefended traffic, group-safe CV,
+bootstrap CI); the sweep applies each defense **as a deterministic transform on the
+undefended base capture** and re-extracts through the real feature pipeline, so the two live
+points serve as ground-truth anchors. **Latency here is schedule-derived** (computed from the
+imposed inter-packet spacing), removing the separate-capture confound that made the live
+latency uninterpretable.
+
+| Defense (swept) | Overhead range | Attack macro-F1 | Reading |
+|---|---|---|---|
+| **size padding** (cell 64→2048 B) | **+6% → +239% bytes** | 0.619 → **0.585** | huge bandwidth cost, attack barely dented |
+| **timing spacing** (min-gap 25→200 ms) | **+6% → +166% latency** | 0.565 → **0.540** | drops ~0.12, then **plateaus** at ~0.54 |
+
+**Validation — the sweep reproduces the live points:** identity transform → macro-F1 **0.657**
+(live undefended 0.656); size-padding at the deployed 512-B cell → **+33% bytes / F1 0.595**
+(live pad +31% / 0.544 — same ballpark; the simulation isolates the *pure size effect on the
+same traces*, so it degrades slightly less than the separately-collected live set).
+
+**Both curves stay far above chance (0.25) at every operating point.** Neither defense
+approaches a clean defeat, and both plateau near ~0.54 (≈65% of above-chance signal retained):
+the size defense is purely expensive, and the timing defense *saturates* — consistent with the
+fingerprint being **structural, not timing-borne** (§2–§3). *(The live "rate" defense is a
+distinct count-based mechanism — dummy sub-calls + reordered delegation — so it is a measured
+anchor, not a point on the timing curve. SOTA-strength defenses remain future work.)*
+
 ---
 
 ## 6. Open-world — two distinct experiments (do not conflate)
@@ -141,7 +176,8 @@ Two framings give very different answers:
   multi-flow JSON-RPC / multi-REST / LLM-direct traffic that the novelty detector accepts at
   0% rejection. Per-category cross-validated A2A-probability is near-zero for those hard
   categories — committed in `detection.background_per_category`: **jsonrpc 0.016, multi-REST
-  0.013, LLM-direct 0.001**. Requires background samples to train.
+  0.013, LLM-direct 0.001**. Requires background samples to train. **This is not a real-world
+  detectability claim — all negatives are non-agentic; see §7 for why it is an open problem.**
 
 **Same or different negatives? (definite)** Different *directories* — novelty uses
 `data/processed_background_sdk` (n=300), supervised uses `data/processed_background`
@@ -166,26 +202,63 @@ planner + ADK air/hotel/car specialists), captured over A2A (n=150). **Detection
 topology only — labels do not align with our taxonomy, so no role/workflow transfer
 number.** `data/results/offtheshelf_{detection,topology}.json`.
 
-- **Detection (binary A2A-vs-background, the correct framing):** **AUC 1.000**; the external
-  a2a_mcp is **detected as A2A at 100%** [100%, 100%] at a 5% background-FPR operating point.
-  - *Caveat (identical to the `caveat` field in the JSON):* the negatives are **multi-flow
-    but non-SSE / non-agentic** (web/API, JSON-RPC, multi-REST, file-download, direct-LLM).
-    The detector separates A2A via its **SSE-streaming + orchestrator fan-out signature**.
-    On *average* the hard categories score near-zero A2A-probability
-    (`background_per_category.mean_a2a_prob`: 0.016 / 0.013 / 0.001), **but at the 5%-FPR
-    operating threshold they sit on the A2A boundary** — `flagged_as_a2a_at_T` flags
-    **multi-REST 20%** and **JSON-RPC 8%** (≈0% for the soft categories), so the hard
-    negatives consume almost the entire false-positive budget. **The AUC 1.000 is a perfect
-    ranking on only 75 hard negatives (25/category); since those categories already cross the
-    operating threshold at 8–20% (`flagged_as_a2a_at_T`), the 1.000 is fragile and would
-    likely not survive more hard-negative data.** And **every negative is non-agentic**, so
-    this measures **"A2A vs non-agentic traffic," not "A2A vs other agent frameworks"**;
-    separability from other **agentic, SSE-based** frameworks (AutoGen, CrewAI, …) is
-    **untested** — the sterner future test.
-  - The naive workflow-novelty detector **fails** here (AUC 0.47 < 0.5 — a2a_mcp is a
-    different workflow), which is why the binary framing is used; recorded as context.
+- **Detection — a stated OPEN PROBLEM, not a real-world detectability claim.** In a
+  *supervised binary A2A-vs-background* setup the external a2a_mcp is separated from our
+  background set with **AUC 1.000** (detected as A2A 100% [100%, 100%] at a 5% background-FPR
+  point). **We do not present this as evidence that A2A is detectable in the wild**, for one
+  structural reason: **every negative in the background set is non-agentic** — multi-flow but
+  non-SSE (web/API, JSON-RPC, multi-REST, file-download, direct-LLM). The detector separates
+  A2A via its **SSE-streaming + orchestrator fan-out signature**, so the AUC 1.000 measures
+  only **"A2A vs non-agentic traffic," not "A2A vs other agent frameworks."**
+  - *Why even the 1.000 is fragile:* on *average* the hard categories score near-zero
+    A2A-probability (`background_per_category.mean_a2a_prob`: 0.016 / 0.013 / 0.001), **but at
+    the 5%-FPR threshold they sit on the A2A boundary** — `flagged_as_a2a_at_T` flags
+    **multi-REST 20%** and **JSON-RPC 8%** (≈0% for the soft categories), consuming almost the
+    entire false-positive budget. The 1.000 is a perfect ranking on **only 75 hard negatives
+    (25/category)** and would likely not survive more hard-negative data.
+  - *The test that actually matters (untested — this is the open problem):* separability from
+    other **agentic, SSE-based** frameworks (AutoGen, CrewAI, …). Until A2A is distinguished
+    from *those*, real-world A2A detectability is **unproven**. The naive workflow-novelty
+    detector already **fails** here (AUC 0.47 < chance — a2a_mcp is a different workflow),
+    which is why the binary framing was used; recorded as context.
 - **Topology:** **hub-and-spoke / hierarchical**, hub = **MCP registry** (every agent
   queries it), specialists as leaves — recovered from flow headers alone, no payload, no ML.
+
+### 7.1 Role fingerprint REPLICATES on a2a_mcp (independent-implementation replication)
+
+Detection/topology above use a2a_mcp only as external corroboration. Going further: does the
+**behavioural role fingerprint** (§1–§2) replicate on this system we did not build?
+`data/results/offtheshelf_fingerprint.json` +
+[`figures/offtheshelf_fingerprint.png`](data/results/figures/offtheshelf_fingerprint.png).
+Each trip's flows are pooled by the agent port they target and classified into a2a_mcp's **own**
+roles from the **35-dim per-agent traffic shape** — the same representation as §1's role task,
+with the port used only for the *label*, never as a feature. GBT, group-safe CV by trip, bootstrap CI.
+
+| Role task on a2a_mcp | Chance | macro-F1 [95% CI] | n |
+|---|---|---|---|
+| **6-way** (mcp / orchestrator / planner / air / hotel / car) | 0.167 | **0.906 [0.848, 0.954]** | 501 |
+| **coordinator vs specialist** (2-way) | 0.50 | **1.000 [1.000, 1.000]** | 501 |
+
+**Agent role is recovered far above chance on an independently-authored system** — the
+fingerprint is not an artefact of our own deployments. This is the result that upgrades the
+cross-implementation story from "existence proof on deployment B (which we *built* to differ)"
+to "**replicated on a system we did not author**."
+
+**Cross-implementation transfer — the honest limit.** A and a2a_mcp have **disjoint role
+taxonomies** (executor/retriever/validator vs registry + coordinator + travel specialists), so a
+labelled A↔a2a_mcp transfer is undefined. The one coarse abstraction both share is
+coordinator-vs-specialist; A has **only** specialists, so the definable direction is
+**a2a_mcp→A**: an a2a_mcp-trained coordinator-vs-specialist model classifies **67%** of A's
+specialists correctly (specialist recall 0.671, n=1747) — a **partial** transfer (the
+"specialist" traffic-shape partly generalises; the rest reads as coordinator). The reverse is
+undefined. **True cross-*framework* label transfer needs a framework sharing A's role taxonomy
+(AutoGen/CrewAI) — future work.**
+
+**No workflow closed-world (and why).** a2a_mcp's routing is **LLM-planned**, so requests do not
+map to a clean specialist fan-out: a live probe found a *flight-only* request triggered **no**
+specialist fan-out while a *hotel-only* request fanned out to **all three** specialists
+(`workflow_probe` in the JSON). Workflow-path classes are not cleanly separable here; a workflow
+fingerprint on an external system needs deterministic routing — future work.
 
 ---
 
@@ -195,12 +268,17 @@ A passive observer, seeing only encrypted-traffic metadata, recovers **workflow*
 0.71) and **agent role** (0.86) far above chance. The signal is **caused by the inter-agent
 call structure** — invariant to the **LLM model** (0.68→0.59) and to the **orchestration
 runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). It holds on **real
-WAN traffic** in-domain, **survives current defenses** (~70% F1 retained at ~30% bandwidth),
-and the **structural A2A fingerprint is detectable on a system we did not build** (a2a_mcp,
-100% @5% FPR — separating it even from hard JSON-RPC/multi-REST background, where a
-confidence-threshold novelty detector fails; a sterner test would use other agent frameworks
-as negatives).
+WAN traffic** in-domain, and **survives current defenses** (~70% F1 retained at ~30%
+bandwidth). Crucially, the **role fingerprint REPLICATES on a system we did not build**
+(a2a_mcp: 6-way role macro-F1 **0.906**, coordinator-vs-specialist **1.000**; topology also
+recovers as hub-and-spoke from headers alone) — moving the cross-implementation claim beyond our
+own deployments. A2A-vs-background *detection* separates a2a_mcp at AUC 1.000, but **only against
+non-agentic negatives** — so real-world detectability (vs. other agentic SSE frameworks) remains
+an **open problem**, not a claim.
 
-**Not claimed:** LAN→WAN transfer, cross-*framework* generalization (C is a control),
-strong open-set rejection of novel workflows/roles, or a detector robust to hard agentic
-negatives — all explicitly future work.
+**Not claimed:** LAN→WAN transfer, cross-*framework label* transfer (A↔a2a_mcp taxonomies are
+disjoint — role *replicates* independently, but shared-label transfer is undefined; only a
+partial coordinator-vs-specialist transfer at 0.67), a workflow fingerprint on an external
+(LLM-planned) system, cross-*framework* generalization (C is a control), strong open-set
+rejection of novel workflows/roles, or a detector robust to hard agentic negatives — all
+explicitly future work.

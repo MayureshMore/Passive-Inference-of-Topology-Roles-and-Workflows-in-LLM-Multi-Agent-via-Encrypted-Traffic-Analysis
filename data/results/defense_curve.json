@@ -1,0 +1,157 @@
+{
+  "task": "workflow",
+  "chance": 0.25,
+  "model": "RandomForest(300, class_weight=balanced, random_state=0)",
+  "method": "Fixed attacker trained on UNDEFENDED traffic, applied to the defended set; group-safe 5-fold CV on prompt_group; macro-F1 with percentile bootstrap 95% CI (seed 42). Identical to scripts/evaluate_defense_live.py.",
+  "simulation_note": "Sweep points are the undefended base capture (data/raw) with the defense transform applied at the packet level, then re-extracted through features/extractor.py. Not a fresh live capture per level; the live points in `measured_live` are the real defended captures.",
+  "pad_wire_offset_bytes": 317,
+  "pad_calibration_note": "pad rounds the SSE-event JSON (= wirelen - pad_wire_offset_bytes) to the cell, matching agents/base.py. pad_wire_offset_bytes (HDR+HTTP/SSE framing) is calibrated ONCE against the live pad set so cell=512 reproduces it (undefended resp p50 535 B \u2192 live 773 B); the other cell sizes are predictions. See `validation`.",
+  "latency_note": "latency_overhead is SCHEDULE-DERIVED (computed from the imposed inter-packet spacing on the base capture), NOT wall-clock \u2014 this avoids the separate-capture latency confound in defense_live.json. Size-padding is 0 by construction (bytes, not time).",
+  "rate_caveat": "rate_timing_sim is a constant-rate TIMING model. The live 'rate' point is a different, COUNT-based mechanism (dummy sub-calls + reordered delegation), so it is shown as a measured anchor, not a point on this timing curve.",
+  "validation": {
+    "note": "The simulation must reproduce the live points at their parameters (sanity check the sweep did not change the method).",
+    "identity_sim_macro_f1": 0.6573296987329147,
+    "committed_baseline_macro_f1": 0.6562427793284122,
+    "pad512_sim_macro_f1": 0.5948296159430748,
+    "committed_pad_live_macro_f1": 0.5443335284832681,
+    "pad512_sim_byte_overhead": 0.325019513285582,
+    "committed_pad_live_byte_overhead": 0.3081819681536242
+  },
+  "measured_live": {
+    "none": {
+      "macro_f1": 0.6562427793284122,
+      "byte_overhead": 0.0
+    },
+    "rate": {
+      "macro_f1": 0.5311526092089043,
+      "byte_overhead": 0.3493885360173332
+    },
+    "pad": {
+      "macro_f1": 0.5443335284832681,
+      "byte_overhead": 0.3081819681536242
+    }
+  },
+  "rows": [
+    {
+      "defense": "none_sim",
+      "param": 0,
+      "param_unit": "-",
+      "byte_overhead": 0.0,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.6573296987329147,
+      "accuracy": 0.6566666666666666,
+      "ci_low": 0.6188485047075046,
+      "ci_high": 0.6923888985779191
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 64,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 0.060128436657324036,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.6186560373081353,
+      "accuracy": 0.6166666666666667,
+      "ci_low": 0.579293186683428,
+      "ci_high": 0.6558133942540066
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 128,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 0.14624188387573134,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.6184515643464759,
+      "accuracy": 0.6166666666666667,
+      "ci_low": 0.5766335388264041,
+      "ci_high": 0.6549466936701688
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 256,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 0.31834148914956306,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.6028072207666879,
+      "accuracy": 0.6016666666666667,
+      "ci_low": 0.562426079106293,
+      "ci_high": 0.6419193409277403
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 512,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 0.325019513285582,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.5948296159430748,
+      "accuracy": 0.5933333333333334,
+      "ci_low": 0.5540139819298597,
+      "ci_high": 0.6331009984655339
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 1024,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 1.0153862594865504,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.59118347692995,
+      "accuracy": 0.59,
+      "ci_low": 0.5506456533175169,
+      "ci_high": 0.6306543855732096
+    },
+    {
+      "defense": "pad_size_sim",
+      "param": 2048,
+      "param_unit": "cell_bytes",
+      "byte_overhead": 2.392518399960183,
+      "latency_overhead": 0.0,
+      "attack_macro_f1": 0.5849450434314053,
+      "accuracy": 0.585,
+      "ci_low": 0.5432388618173288,
+      "ci_high": 0.6225905487888865
+    },
+    {
+      "defense": "rate_timing_sim",
+      "param": 25.0,
+      "param_unit": "min_gap_ms",
+      "byte_overhead": 0.0,
+      "latency_overhead": 0.06225538854638302,
+      "attack_macro_f1": 0.5652590505217039,
+      "accuracy": 0.5683333333333334,
+      "ci_low": 0.5247093527851318,
+      "ci_high": 0.6046081304404711
+    },
+    {
+      "defense": "rate_timing_sim",
+      "param": 50.0,
+      "param_unit": "min_gap_ms",
+      "byte_overhead": 0.0,
+      "latency_overhead": 0.28941156433539605,
+      "attack_macro_f1": 0.5409590177226768,
+      "accuracy": 0.5416666666666666,
+      "ci_low": 0.49877088522982793,
+      "ci_high": 0.5810836406667503
+    },
+    {
+      "defense": "rate_timing_sim",
+      "param": 100.0,
+      "param_unit": "min_gap_ms",
+      "byte_overhead": 0.0,
+      "latency_overhead": 0.7447628058889599,
+      "attack_macro_f1": 0.5344096312774629,
+      "accuracy": 0.535,
+      "ci_low": 0.49131502358479573,
+      "ci_high": 0.5739569712290554
+    },
+    {
+      "defense": "rate_timing_sim",
+      "param": 200.0,
+      "param_unit": "min_gap_ms",
+      "byte_overhead": 0.0,
+      "latency_overhead": 1.6555980435745399,
+      "attack_macro_f1": 0.5400407451798097,
+      "accuracy": 0.54,
+      "ci_low": 0.498946318639294,
+      "ci_high": 0.5785419017472263
+    }
+  ]
+}
