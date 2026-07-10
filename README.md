@@ -157,8 +157,8 @@ Key per-flow features include packet size distribution, inter-arrival timing, di
 |-------|------|-------|
 | Gradient Boosted Trees | `models/gradient_boosted.py` | HistGradientBoostingClassifier on the flat 195-dim vector; **primary headline attacker** (marginal-best) |
 | Random Forest | `models/random_forest.py` | 300-tree ensemble; headline tree attacker, statistically equivalent to GBT (overlapping CIs) |
-| 1-D CNN | `models/cnn1d.py` | Operates on the burst sequence; data-starved at the current ~600-trace scale — reported as a scale-check, not a headline |
-| Transformer | `models/transformer.py` | Gap-aware attention over the burst sequence; data-starved at current scale (learns role, where it has ~1,750 samples) — scale-check only |
+| 1-D CNN | `models/cnn1d.py` | Operates on the burst sequence; **collapses to near-single-class prediction at ~600 traces (below-chance macro-F1) — a degenerate run, excluded from all claims** (see [docs/DEEP_MODEL_APPENDIX.md](docs/DEEP_MODEL_APPENDIX.md)) |
+| Transformer | `models/transformer.py` | Gap-aware attention over the burst sequence; same **class-collapse** failure (excluded from all claims); relatively better on role where it has ~1,750 samples |
 
 The two tree models are the headline attackers; the two deep sequence models are retained as a data-scale sensitivity check and would need ~1,500–2,000 traces per class to compete. Their full architectures, burst-sequence input representation, parameter counts, and training budget — documented to pre-empt the "untuned models" critique — are in [docs/DEEP_MODEL_APPENDIX.md](docs/DEEP_MODEL_APPENDIX.md).
 

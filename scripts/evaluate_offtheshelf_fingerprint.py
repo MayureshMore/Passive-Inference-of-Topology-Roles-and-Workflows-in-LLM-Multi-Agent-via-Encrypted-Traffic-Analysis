@@ -161,6 +161,16 @@ def main(args: argparse.Namespace) -> None:
             "coordinator_vs_specialist": closed_world(X, y_coarse, groups, "coord_vs_spec"),
         },
     }
+    # Framing (must match RESULTS.md §7.1): the 6-way number is THE behavioral result; the
+    # 2-way coordinator-vs-specialist is partly structural and carries less weight.
+    out["primary_role_closed_world"]["role_6way"]["is_headline"] = True
+    out["primary_role_closed_world"]["role_6way"]["note"] = (
+        "HEADLINE behavioral result — 6 roles separated from per-agent traffic shape.")
+    out["primary_role_closed_world"]["coordinator_vs_specialist"]["caveat"] = (
+        "PARTLY STRUCTURAL — read with less weight than role_6way. Coordinator hubs carry far "
+        "more connection volume / fan-in than specialist leaves, so this 2-way split rides "
+        "largely on the same header-readable connection-graph signal as topology, not on subtle "
+        "per-agent behaviour. The behavioural claim is role_6way (0.906).")
 
     # ── Secondary: cross-implementation transfer on the shared abstraction ────
     try:

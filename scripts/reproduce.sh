@@ -131,7 +131,9 @@ else
         run $PY scripts/evaluate_model_vs_logic.py --dir-a "$A" --dir-amodel "$AMODEL" \
             --dir-blogic "$BLOGIC" --dir-b "$B" --out "$SANDBOX/model_vs_logic.json"; fi
     stage "open-world vs real background"
-    if have "$A/labels.json" "$BG/labels.json"; then
+    # NB: background dirs carry labels_background.json (categories in filenames), NOT
+    # labels.json — gating on labels.json here silently skipped this whole stage.
+    if have "$A/labels.json" "$BG/labels_background.json"; then
         run $PY scripts/evaluate_open_world_background.py --processed "$A" --bg-processed "$BG"; fi
     stage "live C4 defenses (needs raw pcaps for overhead)"
     if have "$A/labels.json" "$RATE/labels.json" "$PAD/labels.json" \

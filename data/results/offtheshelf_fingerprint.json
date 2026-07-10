@@ -22,7 +22,9 @@
       "macro_f1": 0.9062072062933414,
       "ci_lo": 0.8480589400641058,
       "ci_hi": 0.9543559939307166,
-      "accuracy": 0.97825311942959
+      "accuracy": 0.97825311942959,
+      "is_headline": true,
+      "note": "HEADLINE behavioral result \u2014 6 roles separated from per-agent traffic shape."
     },
     "coordinator_vs_specialist": {
       "labels": "coord_vs_spec",
@@ -36,7 +38,8 @@
       "macro_f1": 1.0,
       "ci_lo": 1.0,
       "ci_hi": 1.0,
-      "accuracy": 1.0
+      "accuracy": 1.0,
+      "caveat": "PARTLY STRUCTURAL \u2014 read with less weight than role_6way. Coordinator hubs carry far more connection volume / fan-in than specialist leaves, so this 2-way split rides largely on the same header-readable connection-graph signal as topology, not on subtle per-agent behaviour. The behavioural claim is role_6way (0.906)."
     }
   },
   "secondary_cross_impl_shared_abstraction": {

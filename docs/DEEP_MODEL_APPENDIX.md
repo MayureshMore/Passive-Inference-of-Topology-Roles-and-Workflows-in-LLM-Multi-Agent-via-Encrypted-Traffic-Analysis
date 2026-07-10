@@ -3,10 +3,13 @@
 **Purpose.** Two reviewers raised an "untuned models" concern: that the deep models
 underperform the tree attackers only because they were thrown in under-specified. This
 appendix documents the exact input representation, architectures, parameter counts, and
-training budget so the underperformance can be read for what it is — **data starvation at
-N≈600**, not a tuning artifact. The deep models are regularized and early-stopped; the
-trees still win because the dataset is small and the engineered 195-dim features already
-encode the discriminative structure.
+training budget so the underperformance can be read for what it is — **not a tuning
+artifact**. The deep models are regularized and early-stopped, yet at N≈600 they **collapse
+to (near) single-class prediction** — a *degenerate* outcome whose signature is *below-chance*
+macro-F1, so they are **excluded from all claims**. Small data is the leading hypothesis for
+the collapse, but below-chance output is a class-collapse signature, **not** proof of
+starvation per se. The trees win because the engineered 195-dim features already encode the
+discriminative structure.
 
 Source of truth: `models/transformer.py`, `models/cnn1d.py`,
 `evaluation/closed_world.py::run_transformer` / `run_cnn`. Reported numbers are the
@@ -101,7 +104,14 @@ CV = `StratifiedGroupKFold(n_splits = 5)` on `prompt_group`. Device: MPS or CPU.
 Both deep models sit well below the trees; the Transformer collapses to a single class on
 `workflow` (0.100 < chance 0.250), and the CNN is at/under chance on `role` and `topology`.
 
-## Why this is data starvation, not under-tuning
+## Why the deep models collapse (and why it is not under-tuning)
+
+The observed failure is **class collapse** (below-chance macro-F1 with near-chance accuracy —
+e.g. the workflow CNN routes most predictions into one class; the Transformer predicts a single
+class). That is a *degenerate classifier*, and these runs are excluded from every claim. The
+points below explain why the collapse is not a *tuning* failure; whether more data would resolve
+it is a hypothesis, **untested here**.
+
 
 - **The models are regularized and tuned, not naive.** Dropout, weight decay, cosine LR,
   gradient clipping, pre-norm attention, early stopping with best-weight restore, and a
@@ -115,11 +125,11 @@ Both deep models sit well below the trees; the Transformer collapses to a single
 - **The ordering is exactly what theory predicts** at this scale: GBT ≳ RF ≫ Transformer ≫
   CNN, with the highest-capacity model (Transformer) doing *relatively* better where the
   signal is strong and dense (role, topology) and collapsing where it is subtle (workflow).
-- **Consequence for the paper.** Deep models are reported as a **footnote for
-  completeness**, not as the attack. The contribution is that *cheap* tree attackers on
-  engineered features already achieve the headline numbers; closing the deep-model gap is a
-  scaling question (more traces), not a different feature set. This is the honest framing
-  and is consistent with the data-starvation note in `PAPER_ARTIFACTS.md`.
+- **Consequence for the paper.** Deep models are **excluded from every claim** (not the
+  attack). The contribution is that *cheap* tree attackers on engineered features already
+  achieve the headline numbers; whether more traces would un-collapse the deep models is
+  untested and out of scope. This is the honest framing and matches the class-collapse note in
+  `RESULTS.md` §1 / `PAPER_ARTIFACTS.md`.
 
 **Reproduce** (deterministic point estimates for the trees; deep models are stochastic and
 footnote-only): `bash scripts/reproduce.sh --full-suite` runs the closed-world stage incl.

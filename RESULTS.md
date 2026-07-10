@@ -30,17 +30,19 @@ across folds). `data/results/closed_world/`.
 Workflow and agent role — the real attack targets — are recovered far above chance from
 metadata alone.
 
-**Deep models — NOT a fair baseline (data-starved at N=600).** At this scale the
-CNN/Transformer collapse toward single-class prediction, so their macro-F1 lands *at or
-below chance* on several tasks (workflow CNN 0.228 / Transformer 0.100; role Transformer
-0.684). **These sub-chance numbers are a data-scale sensitivity check, not a fair
-trees-vs-deep comparison** — they show the sequence models are *starved*, not that deep
-architectures are worse than trees on this problem. Architectures, input representation,
-parameter counts, and training budget are in
-[`docs/DEEP_MODEL_APPENDIX.md`](docs/DEEP_MODEL_APPENDIX.md) (to pre-empt an "untuned models"
-read — the gap is sample size, not tuning); they would need ~1,500–2,000 traces/class to be
-comparable. **Off by default** in `reproduce.sh` (opt in with `--with-deep`), and excluded
-from every headline claim.
+**Deep models — known-DEGENERATE pipeline, excluded from all claims.** The CNN/Transformer
+do not merely underperform: they **collapse to near-single-class prediction**, which is why
+their macro-F1 falls *below chance* (workflow CNN 0.228 / Transformer 0.100; chance 0.25).
+**This is a degenerate classifier, not a "data-starved" baseline** — a genuinely under-powered
+but functional model sits *near* chance with balanced predictions, whereas here the workflow
+CNN routes **326/600** predictions into one class and predicts `research_retrieval` for only 18
+(recall 4.7%), and the Transformer predicts essentially a single class (accuracy = chance 0.25).
+Below-chance macro-F1 alongside near-chance accuracy is the signature of **class collapse, not
+sample size** — so we do not attribute it to N and we **exclude these runs from every claim**
+(the headline attacker is RF/GBT). Whether the collapse is fixable with more data or a training
+fix is untested and out of scope; architectures, input representation, parameter counts, and
+budget are documented in [`docs/DEEP_MODEL_APPENDIX.md`](docs/DEEP_MODEL_APPENDIX.md). **Off by
+default** in `reproduce.sh` (opt in with `--with-deep`).
 
 ---
 
@@ -236,13 +238,21 @@ with the port used only for the *label*, never as a feature. GBT, group-safe CV 
 
 | Role task on a2a_mcp | Chance | macro-F1 [95% CI] | n |
 |---|---|---|---|
-| **6-way** (mcp / orchestrator / planner / air / hotel / car) | 0.167 | **0.906 [0.848, 0.954]** | 501 |
-| **coordinator vs specialist** (2-way) | 0.50 | **1.000 [1.000, 1.000]** | 501 |
+| **6-way** (mcp / orchestrator / planner / air / hotel / car) — *the behavioral result* | 0.167 | **0.906 [0.848, 0.954]** | 501 |
+| coordinator vs specialist (2-way) — *partly structural (see note)* | 0.50 | 1.000 [1.000, 1.000] | 501 |
 
-**Agent role is recovered far above chance on an independently-authored system** — the
+**The 6-way 0.906 is the headline: agent role is recovered far above chance on an
+independently-authored system, from per-agent traffic shape alone** — the behavioral
 fingerprint is not an artefact of our own deployments. This is the result that upgrades the
 cross-implementation story from "existence proof on deployment B (which we *built* to differ)"
 to "**replicated on a system we did not author**."
+
+> **Read the coordinator-vs-specialist 1.000 with less weight — it is _partly structural_, not
+> purely behavioral.** Coordinator hubs (registry / orchestrator / planner) carry far more
+> connection volume and fan-in than the specialist leaves, so the 2-way split rides largely on
+> the **same header-readable connection-graph signal as topology** (the intro's structural-baseline
+> caveat (3)), not on subtle per-agent behavior. The genuinely behavioral claim is the **6-way**
+> number.
 
 **Cross-implementation transfer — the honest limit.** A and a2a_mcp have **disjoint role
 taxonomies** (executor/retriever/validator vs registry + coordinator + travel specialists), so a
@@ -270,9 +280,9 @@ call structure** — invariant to the **LLM model** (0.68→0.59) and to the **o
 runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). It holds on **real
 WAN traffic** in-domain, and **survives current defenses** (~70% F1 retained at ~30%
 bandwidth). Crucially, the **role fingerprint REPLICATES on a system we did not build**
-(a2a_mcp: 6-way role macro-F1 **0.906**, coordinator-vs-specialist **1.000**; topology also
-recovers as hub-and-spoke from headers alone) — moving the cross-implementation claim beyond our
-own deployments. A2A-vs-background *detection* separates a2a_mcp at AUC 1.000, but **only against
+(a2a_mcp: **6-way role macro-F1 0.906** from per-agent traffic shape — the behavioral result;
+the coordinator-vs-specialist 1.000 is *partly structural*, and topology recovers as hub-and-spoke
+from headers alone) — moving the cross-implementation claim beyond our own deployments. A2A-vs-background *detection* separates a2a_mcp at AUC 1.000, but **only against
 non-agentic negatives** — so real-world detectability (vs. other agentic SSE frameworks) remains
 an **open problem**, not a claim.
 

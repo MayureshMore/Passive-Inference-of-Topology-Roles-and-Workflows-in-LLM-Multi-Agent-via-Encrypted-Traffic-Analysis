@@ -319,9 +319,10 @@ def write_markdown(figs: dict[str, Path | None]) -> Path:
         return f.get("mean") if isinstance(f, dict) else f
     tasks = ["workflow", "role", "topology", "parallelism"]
     if any(_f1_of("transformer", t) is not None or _f1_of("cnn", t) is not None for t in tasks):
-        lines.append("## Deep models vs trees (data-starved footnote)\n")
-        lines.append("Reported for completeness — both deep sequence models underperform the "
-                     "tree attackers at N=600, consistent with data-starvation.\n")
+        lines.append("## Deep models vs trees (degenerate — excluded from all claims)\n")
+        lines.append("Shown for completeness only. The deep sequence models **collapse to "
+                     "(near) single-class prediction** at N=600 (below-chance macro-F1) — a "
+                     "degenerate classifier, not a fair baseline. Excluded from every claim.\n")
         lines.append("| Task | GBT | RF | Transformer | CNN1D | chance |")
         lines.append("|---|---|---|---|---|---|")
         for t in tasks:
