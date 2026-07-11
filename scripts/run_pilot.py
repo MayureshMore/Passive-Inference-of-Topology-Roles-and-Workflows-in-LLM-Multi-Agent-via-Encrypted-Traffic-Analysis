@@ -248,6 +248,7 @@ async def run_topology(
     num_predict: int | None = None,
     defense: str = "none",
     ollama_url: str = "http://localhost:11434",
+    seed_offset: int = 0,
 ) -> dict[str, dict]:
     ports = dep["ports"]
     logger.info("")
@@ -302,10 +303,12 @@ async def run_topology(
         wf_class = WorkflowClass(wf_name)
         wf_instance = WORKFLOW_REGISTRY[wf_class]()
         # Same seed formula across deployments → identical prompts, so A vs B
-        # differences are due to implementation, not input.
+        # differences are due to implementation, not input.  `seed_offset` (default 0 →
+        # unchanged) lets a caller draw a DISJOINT prompt sample on repeated runs, e.g. a
+        # temporal-interleaving confound control that must spread distinct prompts across time.
         _TOPOS = ["star", "chain", "mesh"]
         _WFS   = [wf.value for wf in WorkflowClass]
-        _seed  = _TOPOS.index(topology) * len(_WFS) + _WFS.index(wf_name) + 100
+        _seed  = _TOPOS.index(topology) * len(_WFS) + _WFS.index(wf_name) + 100 + seed_offset
         prompts = wf_instance.sample_prompts(n=n, seed=_seed)
 
         # Build a fresh orchestrator for each workflow run (new HTTP client)
@@ -405,6 +408,7 @@ async def main(args: argparse.Namespace) -> None:
             model=model,
             out_dir=out_dir,
             n_retrieval_phases=args.retriever_phases,
+            seed_offset=args.seed_offset,
             num_predict=num_predict,
             defense=args.defense,
             ollama_url=args.ollama_url,
@@ -462,6 +466,10 @@ def _parse() -> argparse.Namespace:
                    dest="num_predict",
                    help=f"Cap Ollama response tokens per call (default: {DEFAULT_NUM_PREDICT}). "
                         "Set 0 for unlimited. Lower = faster collection.")
+    p.add_argument("--seed-offset", type=int, default=0, dest="seed_offset",
+                   help="Added to the per-workflow prompt seed (default 0 → unchanged). Vary "
+                        "across repeated runs to draw DISJOINT prompt samples — e.g. a temporal-"
+                        "interleaving confound control that spreads distinct prompts across time.")
     p.add_argument("--defense", default="none",
                    choices=["none", "pad", "rate", "both"],
                    help="Live C4 network defense applied during collection: none; "

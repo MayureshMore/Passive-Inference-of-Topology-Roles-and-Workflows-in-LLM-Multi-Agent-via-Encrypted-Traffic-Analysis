@@ -292,6 +292,152 @@ def fig_offtheshelf_fingerprint() -> Path | None:
     return p
 
 
+def fig_framework_id() -> Path | None:
+    """Phase 1 — implementation identification confusion matrix (with confound caveat)."""
+    d = _load(RESULTS / "framework_id.json")
+    if not d or "result_full_shape" not in d:
+        return None
+    cm = d["result_full_shape"]["confusion_matrix"]
+    labels = cm["labels"]
+    M = np.asarray(cm["matrix"], dtype=float)
+    Mn = M / M.sum(axis=1, keepdims=True).clip(min=1)  # row-normalized
+    fig, ax = plt.subplots(figsize=(6.2, 5.4))
+    im = ax.imshow(Mn, cmap="Blues", vmin=0, vmax=1)
+    ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=8)
+    ax.set_yticks(range(len(labels))); ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlabel("predicted"); ax.set_ylabel("true")
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            v = Mn[i, j]
+            ax.text(j, i, f"{v:.2f}", ha="center", va="center",
+                    color="white" if v > 0.5 else "black", fontsize=8)
+    mf = d["result_full_shape"]["macro_f1"]
+    acf = d["timing_ablation"]["A_vs_C_separability_full"]
+    acn = d["timing_ablation"]["A_vs_C_separability_no_timing"]
+    ax.set_title(f"Phase 1: implementation ID — macro-F1 {mf:.3f}\n"
+                 f"⚠ near-perfect incl. same-structure A↔C ({acf}, {acn} no-timing):\n"
+                 f"likely batch/session-confounded — treat within-family as upper bound",
+                 fontsize=8.5)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="row-normalized rate")
+    fig.tight_layout()
+    p = FIGS / "framework_id.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
+def fig_cross_instance_transfer() -> Path | None:
+    """Phase 2 — role transfer between two independent instances of a2a_mcp (both directions)."""
+    d = _load(RESULTS / "cross_instance_transfer.json")
+    if not d or "role_transfer" not in d:
+        return None
+    rt = d["role_transfer"]
+    dirs = [("inst1_to_inst2", "train inst 1\n→ test inst 2"),
+            ("inst2_to_inst1", "train inst 2\n→ test inst 1")]
+    names, f1v, err = [], [], []
+    for key, lbl in dirs:
+        r = rt.get(key)
+        if not r:
+            continue
+        names.append(lbl); f1v.append(r["macro_f1"])
+        err.append((max(0, r["macro_f1"] - r["ci_lo"]), max(0, r["ci_hi"] - r["macro_f1"])))
+    chance = rt["inst1_to_inst2"]["chance"]
+    weak = rt["weaker_direction_macro_f1"]
+    roles = d.get("common_roles_used", [])
+    fig, ax = plt.subplots(figsize=(6.8, 4.5))
+    xs = np.arange(len(names))
+    ax.bar(xs, f1v, 0.5, yerr=np.array(err).T, capsize=5, color=["#3182bd", "#9ecae1"])
+    for i, x in enumerate(xs):
+        ax.text(x, f1v[i] + 0.03, f"{f1v[i]:.2f}", ha="center", fontsize=11, fontweight="bold")
+    ax.hlines(chance, -0.4, len(names) - 0.6, colors="crimson", linestyles="--", lw=1.4)
+    ax.text(len(names) - 0.6, chance + 0.012, f"chance {chance:.2f}", ha="right", fontsize=8, color="crimson")
+    ax.hlines(0.70, -0.4, len(names) - 0.6, colors="#238b45", linestyles=":", lw=1.4)
+    ax.text(-0.38, 0.71, "§4 DEPLOYABLE ≥0.70", ha="left", fontsize=8, color="#238b45")
+    ax.set_xticks(xs); ax.set_xticklabels(names)
+    ax.set_ylabel("macro-F1 (GBT transfer, 95% CI)"); ax.set_ylim(0, 1.15)
+    n2 = d.get("roles_present_instance2", {})
+    spec = min((n2.get(r, 0) for r in ("air_ticketing", "hotel", "car_rental")), default=0)
+    ax.set_title(
+        f"Phase 2: role transfer across two independent a2a_mcp instances\n"
+        f"(diff LLM 2.5→2.0-flash, diff prompts, diff session) — {len(roles)}-way "
+        f"coordinator layer ({'/'.join(roles)})\n"
+        f"weaker direction {weak:.2f} → §4 DEPLOYABLE  |  specialists too sparse "
+        f"(n≈{spec}/inst-2, <5 bar) — untested",
+        fontsize=8.3)
+    fig.tight_layout()
+    p = FIGS / "cross_instance_transfer.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
+def fig_framework_id_control() -> Path | None:
+    """Phase-1 confound control — A↔C runtime fingerprint collapses under same-session capture."""
+    d = _load(RESULTS / "framework_id_interleaved.json")
+    if not d or "confound_control_comparison" not in d:
+        return None
+    cc = d["confound_control_comparison"]
+    orig_sep = cc.get("original_confounded", {}).get("A_vs_C_separability_full")
+    ctrl_sep = cc.get("interleaved_controlled", {}).get("A_vs_C_separability_full_from_3way")
+    if orig_sep is None or ctrl_sep is None:
+        return None
+    hl = d.get("headline_A_vs_C_2way_balanced", {})
+    mf, ci = hl.get("macro_f1_full"), hl.get("macro_f1_full_ci")
+    fig, ax = plt.subplots(figsize=(6.6, 4.5))
+    xs = [0, 1]
+    bars = ax.bar(xs, [orig_sep, ctrl_sep], 0.5, color=["#c6553b", "#3182bd"])
+    ax.set_xticks(xs)
+    ax.set_xticklabels(["separate-session\n(confounded)", "same-session\ninterleaved\n(controlled)"])
+    for x, v in zip(xs, [orig_sep, ctrl_sep]):
+        ax.text(x, v + 0.02, f"{v:.2f}", ha="center", fontsize=12, fontweight="bold")
+    ax.hlines(0.5, -0.4, 1.4, colors="crimson", linestyles="--", lw=1.4)
+    ax.text(1.4, 0.51, "≈ chance", ha="right", fontsize=8, color="crimson")
+    ax.set_ylabel("A↔C separability (asyncio vs LangGraph)"); ax.set_ylim(0, 1.1)
+    sub = (f"balanced 2-way macro-F1 (controlled) = {mf:.2f} [{ci[0]:.2f}, {ci[1]:.2f}] — CI straddles chance"
+           if mf is not None and ci else "")
+    ax.set_title("Phase-1 CONTROL: the A↔C runtime fingerprint is a CAPTURE-SESSION CONFOUND\n"
+                 "0.997 → 0.49 under same-session interleaving — honestly demoted; corroborates §3\n"
+                 + sub, fontsize=8.5)
+    fig.tight_layout()
+    p = FIGS / "framework_id_control.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
+def fig_confound_control() -> Path | None:
+    """Confound audit — core claims survive same-session interleaving; framework-ID collapses."""
+    d = _load(RESULTS / "confound_control.json")
+    if not d or "results" not in d:
+        return None
+    R = d["results"]
+    rows = []
+    for task in ("workflow", "role", "topology"):
+        r = R.get(task)
+        if not r:
+            continue
+        rows.append((task, r["committed_baseline"]["macro_f1"], r["interleaved"]["macro_f1"],
+                     r["interleaved"]["chance"], True))
+    f = R.get("framework_id_A_vs_C")
+    if f:
+        rows.append(("framework-ID\n(A↔C)", f["separate_session"], f["interleaved"], 0.5, False))
+    if not rows:
+        return None
+    fig, ax = plt.subplots(figsize=(7.6, 4.6))
+    xs = np.arange(len(rows)); w = 0.38
+    comm = [r[1] for r in rows]; intr = [r[2] for r in rows]
+    surv = [r[4] for r in rows]
+    ax.bar(xs - w/2, comm, w, label="committed (batched)", color="#9e9e9e")
+    ax.bar(xs + w/2, intr, w, label="same-session interleaved (controlled)",
+           color=["#2e7d32" if s else "#c62828" for s in surv])
+    for i, r in enumerate(rows):
+        ax.hlines(r[3], i - 0.45, i + 0.45, colors="crimson", linestyles="--", lw=1.1)
+        ax.text(i + w/2, r[2] + 0.02, f"{r[2]:.2f}", ha="center", fontsize=9, fontweight="bold")
+        ax.text(i - w/2, r[1] + 0.02, f"{r[1]:.2f}", ha="center", fontsize=8, color="#555")
+    ax.set_xticks(xs); ax.set_xticklabels([r[0] for r in rows])
+    ax.set_ylabel("macro-F1"); ax.set_ylim(0, 1.15); ax.legend(loc="lower left", fontsize=8)
+    ax.set_title("Confound audit: the SAME same-session control that breaks framework-ID\n"
+                 "leaves workflow / role / topology UNCHANGED (Δ ≤ 0.03) — the core attack is real,\n"
+                 "not a capture artefact (red = collapses to chance; green = survives)", fontsize=8.5)
+    fig.tight_layout()
+    p = FIGS / "confound_control.png"; fig.savefig(p, dpi=150); plt.close(fig)
+    return p
+
+
 # ── Markdown bundle ───────────────────────────────────────────────────────────
 
 def write_markdown(figs: dict[str, Path | None]) -> Path:
@@ -370,6 +516,10 @@ def main() -> None:
         "Defense cost/benefit":       fig_defense(),
         "Defense overhead–accuracy curve": fig_defense_curve(),
         "Off-the-shelf role fingerprint":  fig_offtheshelf_fingerprint(),
+        "Framework/implementation ID (Phase 1)": fig_framework_id(),
+        "Framework-ID confound control (Phase 1)": fig_framework_id_control(),
+        "Confound audit — core claims survive": fig_confound_control(),
+        "Cross-instance role transfer (Phase 2)": fig_cross_instance_transfer(),
     }
     md = write_markdown(figs)
     print("Wrote:")

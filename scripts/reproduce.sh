@@ -154,6 +154,23 @@ else
     stage "off-the-shelf role fingerprint (Task #4 — a2a_mcp replication; needs off-the-shelf pcaps)"
     if have "data/raw_offtheshelf" "$A/labels.json"; then
         run $PY scripts/evaluate_offtheshelf_fingerprint.py --raw data/raw_offtheshelf --a-role "$A"; fi
+    stage "framework/implementation ID (Phase 1 recon; needs ≥3 impls' processed features)"
+    if have "$A/labels.json" "$LANGGRAPH/labels.json"; then
+        run $PY scripts/evaluate_framework_id.py; fi
+    stage "framework-ID CONFOUND CONTROL (Phase 1; same-session interleaved A/B/C — new collection via collect_interleaved.sh)"
+    # Reads the interleaved processed features (produced by collect_interleaved.sh + extract).
+    if have "data/processed_interleaved_a/labels.json" "data/processed_interleaved_langgraph/labels.json"; then
+        run $PY scripts/evaluate_framework_id_interleaved.py; fi
+    stage "CONFOUND AUDIT — core claims (workflow/role/topology) under same-session interleaving"
+    # Needs the powered interleaved-A capture + the prompt-diverse workflow capture (new collections
+    # via collect_interleaved.sh --powered / collect_wf_interleaved.sh, then extract_features).
+    if have "data/processed_interleaved_a_pwr/labels.json" "data/processed_wf_interleaved/labels.json"; then
+        run $PY scripts/evaluate_confound_control.py; fi
+    stage "cross-instance transfer (Phase 2; reads RAW pcaps of both a2a_mcp instances — new collection)"
+    # NB: this evaluator consumes RAW pcaps directly (extract_role_samples), not processed
+    # features — so gate on the raw dirs it actually reads, else the stage silently skips.
+    if have "data/raw_offtheshelf" "data/raw_offtheshelf_inst2"; then
+        run $PY scripts/evaluate_cross_instance_transfer.py; fi
     stage "paper artifacts"
     run $PY scripts/make_paper_artifacts.py
 fi

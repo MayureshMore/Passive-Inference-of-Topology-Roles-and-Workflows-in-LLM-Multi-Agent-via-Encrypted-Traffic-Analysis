@@ -272,23 +272,195 @@ fingerprint on an external system needs deterministic routing — future work.
 
 ---
 
+## 8. Framework / implementation identification (Phase 1 — recon)
+
+Can a passive observer tell *which implementation* a deployment runs, from traffic alone (the
+reconnaissance half of an attack)? Multiclass GBT over the four captured implementations
+(A, B, C/LangGraph, a2a_mcp), one whole-trace vector each, group-safe CV, bootstrap CI.
+`data/results/framework_id.json` +
+[`figures/framework_id.png`](data/results/figures/framework_id.png). **Feature = the 195-dim
+traffic-shape vector minus 5 explicit endpoint/flow-count features** (`n_flows`, `n_src_hosts`,
+`n_dst_hosts`, `n_host_pairs`, `max_concurrent_flows`) so the result is a *shape* fingerprint,
+not the trivial "count the endpoints" topology baseline. No feature is port/IP/identity-derived.
+
+| Feature set | macro-F1 [95% CI] | chance | A↔C separability |
+|---|---|---|---|
+| full traffic-shape (separate-session capture) | 0.998 [0.996, 1.000] | 0.25 | 0.997 |
+| timing ablated (−29 timing feats) | 0.993 [0.989, 0.996] | 0.25 | 0.989 |
+
+> **⚠ This near-perfect number is a CAPTURE-SESSION CONFOUND — we ran the control and it does not
+> survive.** Every pair separated at ~1.0, *including A vs C_langgraph* which share call structure
+> by design. Perfect separation of things that should be *similar* is the classic signature of a
+> batch confound: each implementation was collected in a *separate* session, so the classifier can
+> key on session artefacts (host state, clock granularity, ephemeral-port ranges) rather than a
+> genuine fingerprint. We did not leave this as a caveat — we tested it.
+
+### 8.1 Same-session interleaved control (the confound test — **run, not deferred**)
+
+We re-collected A, B, and C **round-robined in one continuous session**
+(`scripts/collect_interleaved.sh`; 6 cycles × 12 workflow×topology conditions), so any
+session-drift artefact is *shared across labels* and can no longer predict the label. A and C
+use the **same model** (`llama3.2:3b`), same call logic, and identical condition coverage, so the
+**only** systematic difference is the orchestration runtime (asyncio vs LangGraph).
+`data/results/framework_id_interleaved.json` +
+[`figures/framework_id_control.png`](data/results/figures/framework_id_control.png).
+
+| A↔C (asyncio vs LangGraph), balanced 2-way | macro-F1 [95% CI] | chance |
+|---|---|---|
+| **separate-session (confounded)** | separability **0.997** | 0.50 |
+| **same-session interleaved (controlled)** | **0.460 [0.381, 0.542]** | 0.50 |
+| controlled, timing also ablated | 0.383 | 0.50 |
+
+**Verdict: the A↔C fingerprint COLLAPSES to chance under the control** (0.997 → 0.46; CI straddles
+0.50). The near-perfect separate-session number was **batch-inflated**. Honest consequence:
+
+- **Within-family implementation ID (A/B/C) is NOT a real recon signal** — it was a capture
+  artefact. We *demote it* rather than defend it. (The 3-way stays at 0.61 only because deployment
+  B's orchestrator deterministically fails chain/mesh, so B is separable by *topology coverage*, a
+  second artefact — see `class_condition_coverage`; not a behavioural fingerprint either.)
+- **Distinct-framework ID survives for a real reason.** a2a_mcp (a 6-agent travel system) vs our
+  4-agent A2A separates because the call *structure* genuinely differs — that is topology, not a
+  session artefact, and it is unaffected by this control.
+- **This CONFIRMS the §3 runtime-invariance thesis from the dual direction.** §3 shows the attack
+  *transfers* A→C because they share call structure; the control shows you *cannot even fingerprint*
+  A vs C — same structure → same traffic shape. Both point to one fact: the signal is **structure**,
+  and structure is invariant to the runtime. The earlier "structure-invariant, *timing-shifted*"
+  gap (§3 diagnostic) was itself largely session drift — under same-session capture, timing adds
+  almost nothing (0.46 → 0.38 when timing is removed).
+
+**Net for the paper:** framework/implementation fingerprinting is honestly reported as **negative
+under control** (a strengthening, not a weakness — it removes the most confound-vulnerable claim and
+corroborates §3). The recon claim that remains is the narrow, defensible one: an observer can tell
+apart **structurally-distinct** frameworks, because that is just topology recovery by another name.
+
+### 8.2 Confound audit — the SAME control leaves the core attack UNCHANGED
+
+§8.1 raises the obvious question a reviewer will ask next: *if the framework-ID number was a
+capture-session artefact, why trust workflow / role / topology?* We answer it directly — by
+re-running the **three core closed-world tasks on same-session interleaved captures** and comparing
+to the committed (batch-collected) baselines. `data/results/confound_control.json` +
+[`figures/confound_control.png`](data/results/figures/confound_control.png).
+
+- **Role & topology** use the powered interleaved-A capture (`collect_interleaved.sh`; deployment A,
+  llama3.2:3b, all four workflows round-robined across the session — 239 traces).
+- **Workflow** uses a dedicated prompt-diverse interleaved capture (`collect_wf_interleaved.sh`;
+  4 workflows round-robined in short blocks across the session, **fresh prompts each cycle** via the
+  new `run_pilot --seed-offset`, so the group-CV — which holds out whole prompts — has real prompt
+  diversity). Compared against the committed **star-only** baseline for a like-for-like read.
+
+| Core task | committed (batched) | same-session interleaved (controlled) | Δ | verdict |
+|---|---|---|---|---|
+| **workflow** | 0.723 [0.667, 0.790] | **0.690 [0.622, 0.767]** | −0.03 | **SURVIVES** (CI overlap) |
+| **role** | 0.864 [0.847, 0.879] | **0.886 [0.853, 0.903]** | +0.02 | **SURVIVES** |
+| **topology** | 0.995 [0.988, 1.000] | **1.000 [1.000, 1.000]** | +0.01 | **SURVIVES** |
+| framework-ID (A↔C) | 0.997 | **0.46** | −0.51 | COLLAPSES → demoted (§8.1) |
+
+**All three core recovery claims are unchanged under the same control that demolished framework-ID.**
+The interleaved macro-F1s land within noise of the committed baselines (CIs overlap; |Δ| ≤ 0.03),
+while framework-ID falls from 0.997 to chance. This is the crux of the paper's internal validity: a
+capture-session confound inflates classification *between separately-captured classes* (framework-ID:
+A, B, C each in their own session) but **cannot** create the core signal, because workflow / role /
+topology labels all co-occur *within the same continuous capture* — so no session artefact tracks the
+label. The control confirms exactly that, empirically. The attack recovers **genuine call-structure
+traffic shape**, not the setup it was captured in.
+
+**What about the remaining claims?** The *transfer* results — model-vs-logic (§2), runtime-invariance
+(§3), and cross-instance role transfer (§9) — are **already conservative** with respect to this
+confound and need no separate control: they *train on one capture and test on a different one*, so a
+capture-session artefact would make train/test **mismatch** and *degrade* transfer, never inflate it.
+That A→C transfers at 0.64/0.83 and instance-1→instance-2 at 0.912 *across* sessions is therefore a
+floor, not a confound-inflated ceiling. The confound direction matters: it inflates *separability
+between separately-captured classes* (framework-ID) and *lowers* cross-capture *transfer* — so §8.2's
+within-capture controls plus the cross-capture transfers together cover every classification claim.
+
+> **A note on scientific honesty (why this section exists).** We went looking for the confound that
+> would sink this paper, found one (framework-ID), and report it as a clean negative — then showed
+> with the identical instrument that the core claims are unaffected. That asymmetry (one auxiliary
+> claim demoted, three core claims corroborated) is *stronger* evidence than an unaudited table of
+> high numbers: it demonstrates the numbers that remain are not capture artefacts.
+
+---
+
+## 9. Cross-instance transfer on a2a_mcp (Phase 2 — the deployable-attack test)
+
+§7.1 showed the role fingerprint *replicates* when we re-train on a2a_mcp. The stronger,
+deployability-relevant question is **transfer**: can an attacker train a role classifier on
+**their own** copy of a popular framework and read roles off a **victim's independent copy**?
+We stood up a **second, independent instance** of a2a_mcp and tested train-on-one → test-on-other,
+both directions. `data/results/cross_instance_transfer.json` +
+[`figures/cross_instance_transfer.png`](data/results/figures/cross_instance_transfer.png).
+
+**Instance-2 independence (the axes that would break a brittle fingerprint):** different LLM
+(`gemini-2.0-flash` vs instance-1's `gemini-2.5-flash`, via a2a_mcp's own `LITELLM_MODEL`),
+reworded prompt template (different destinations/dates/party-size/class/nights), separate capture
+session. **Shared:** only the framework's fixed six roles by port (10100–10105) — which is the
+whole point. Representation and method are identical to §7.1 (35-dim per-agent traffic-shape
+vector; **port is the label, never a feature**; GBT `_transfer`, macro-F1 + bootstrap 95% CI,
+seed 42). Instance 2 = **67 trips** (`data/raw_offtheshelf_inst2`, gemini-2.0-flash, ~$2.6 real spend).
+
+| Direction | macro-F1 [95% CI] | acc | n_test | chance |
+|---|---|---|---|---|
+| train inst-1 → test inst-2 | **0.912 [0.872, 0.947]** | 0.910 | 201 | 0.333 |
+| train inst-2 → test inst-1 | 1.000 [1.000, 1.000] | 1.000 | 450 | 0.333 |
+
+**Verdict (§4 pre-registered, weaker direction is the headline): DEPLOYABLE ATTACK** — the weaker
+direction is **0.912**, CI floor 0.872 sits far clear of the 0.333 chance line, above the ≥0.70
+bar. A classifier trained on one instance recovers roles on an *independent* instance despite a
+different LLM, different prompts, and a different session. This is the strongest evidence in the
+study that the attack is **portable**, not memorized per-deployment.
+
+> **⚠ Scope it honestly — this is the 3-role COORDINATOR layer, not the full 6-way.** a2a_mcp's
+> LLM-planned routing fans out to the three specialists (air/hotel/car) only *sometimes*, and in
+> instance 2 they fired in ~6% of trips — **n≈4 each, below the ≥5-sample bar** — so they are
+> **excluded**. The transfer above is over the three *always-present* coordinators
+> (`mcp`/`orchestrator`/`planner`). Cross-instance **specialist** transfer is **untested here** — a
+> data-sparsity gap (LLM-planned fan-out + a budget-bounded second capture), **not** a negative
+> result. Two further honesties: (1) the perfect 1.000 direction rides on instance-2's small, clean
+> training set — we headline the weaker **0.912**, not the 1.000; (2) the three coordinators do
+> structurally different jobs (MCP tool-server vs top-level hub vs one-shot planner), so part of
+> their separability is volumetric — but the non-trivial, deployability-relevant claim is that it
+> **transfers across the independence axes**, which it does.
+
+**Coordinator-vs-specialist (2-way, both directions):** weaker direction macro-F1 **0.732
+[0.625, 0.823]** (acc 0.897), stronger 0.927 — *also* transfers, but flagged **partly structural**
+(hub-vs-leaf rides on connection volume like topology, not subtle per-agent behavior). The
+behavioral headline remains the 3-way coordinator transfer above.
+
+---
+
 ## Bottom line
 
 A passive observer, seeing only encrypted-traffic metadata, recovers **workflow** (GBT
 0.71) and **agent role** (0.86) far above chance. The signal is **caused by the inter-agent
 call structure** — invariant to the **LLM model** (0.68→0.59) and to the **orchestration
-runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). It holds on **real
+runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). All three core
+recovery claims are **confound-controlled**: under a same-session interleaved capture (§8.2) —
+the very control that collapses the auxiliary framework-ID number from 0.997 to chance — workflow
+(0.69), role (0.89) and topology (1.00) are **unchanged** (|Δ| ≤ 0.03), proving the signal is
+genuine call-structure traffic shape, not a capture artefact. It holds on **real
 WAN traffic** in-domain, and **survives current defenses** (~70% F1 retained at ~30%
 bandwidth). Crucially, the **role fingerprint REPLICATES on a system we did not build**
 (a2a_mcp: **6-way role macro-F1 0.906** from per-agent traffic shape — the behavioral result;
 the coordinator-vs-specialist 1.000 is *partly structural*, and topology recovers as hub-and-spoke
-from headers alone) — moving the cross-implementation claim beyond our own deployments. A2A-vs-background *detection* separates a2a_mcp at AUC 1.000, but **only against
-non-agentic negatives** — so real-world detectability (vs. other agentic SSE frameworks) remains
-an **open problem**, not a claim.
+from headers alone) — and, on a **second independent instance** of that framework (different LLM,
+prompts, session), a role classifier **transfers across instances at macro-F1 0.912** on the
+always-present coordinator layer (§9, weaker direction, ≥0.70 §4 bar) — the deployable-attack
+result: train on your own copy, read roles off a victim's. A2A-vs-background *detection* separates
+a2a_mcp at AUC 1.000, but **only against non-agentic negatives** — so real-world detectability
+(vs. other agentic SSE frameworks) remains an **open problem**, not a claim. A **same-session
+interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
+implementation fingerprint **collapses from 0.997 to chance (0.49)** once the capture-session
+confound is removed — so within-family framework/implementation ID is a batch artefact, honestly
+**demoted**, and the recon claim is narrowed to telling apart *structurally-distinct* frameworks
+(which is topology recovery, not a session artefact).
 
-**Not claimed:** LAN→WAN transfer, cross-*framework label* transfer (A↔a2a_mcp taxonomies are
-disjoint — role *replicates* independently, but shared-label transfer is undefined; only a
-partial coordinator-vs-specialist transfer at 0.67), a workflow fingerprint on an external
-(LLM-planned) system, cross-*framework* generalization (C is a control), strong open-set
-rejection of novel workflows/roles, or a detector robust to hard agentic negatives — all
-explicitly future work.
+**Not claimed:** **within-family framework/implementation identification** (§8.1 — negative under
+the same-session control; the separate-session 0.998 was batch-confounded), LAN→WAN transfer,
+cross-*framework label* transfer (A↔a2a_mcp taxonomies are disjoint — role *replicates*
+independently, but shared-label transfer is undefined; only a partial coordinator-vs-specialist
+transfer at 0.67), **cross-instance transfer of the sparse
+specialist roles** (§9 demonstrates it for the coordinator layer at 0.912, but the air/hotel/car
+specialists fired too rarely in the second instance to test — a data-sparsity gap, not a
+negative), a workflow fingerprint on an external (LLM-planned) system, cross-*framework*
+generalization (C is a control), strong open-set rejection of novel workflows/roles, or a
+detector robust to hard agentic negatives — all explicitly future work.

@@ -1,0 +1,178 @@
+{
+  "task": "Phase-1 CONFOUND CONTROL \u2014 framework ID on same-session interleaved capture",
+  "why": "Original framework_id.json separability may be capture-session/batch confounded; this re-runs the identical analysis on round-robin interleaved A/B/C so session drift is shared across labels. A & C share model+logic, differ only in runtime.",
+  "method": "IDENTICAL to evaluate_framework_id.py (190-dim traffic-shape vector = 195 minus 5 structural counts; GBT; group-safe 5-fold StratifiedGroupKFold by prompt_group; macro-F1 + pooled-OOF bootstrap 95% CI; timing ablation). Port never a feature.",
+  "n_classes": 3,
+  "chance": 0.3333333333333333,
+  "n_per_class": {
+    "A": 71,
+    "B": 24,
+    "C_langgraph": 72
+  },
+  "headline_A_vs_C_2way_balanced": {
+    "note": "THE control result \u2014 dedicated GBT on A vs C_langgraph only (asyncio vs LangGraph), same model+logic, both fully covering all 12 conditions; chance 0.5.",
+    "macro_f1_full": 0.4600727513227514,
+    "macro_f1_full_ci": [
+      0.38095238095238093,
+      0.5422309775917262
+    ],
+    "macro_f1_no_timing": 0.3826954708735858,
+    "n_A": 71,
+    "n_C": 72
+  },
+  "class_condition_coverage": {
+    "note": "Deployment B's orchestrator (sequential pipeline) DETERMINISTICALLY fails chain/mesh for 3 of 4 workflows, so B only yields star + support_triage traffic (narrower coverage than A/C, which cover all 12). B's 3-way separability is therefore partly a TOPOLOGY-COVERAGE artefact \u2014 the clean runtime test is the balanced A\u2194C 2-way above, which excludes B."
+  },
+  "result_full_shape": {
+    "macro_f1": 0.6055097052786927,
+    "macro_f1_ci_lo": 0.6041218210213122,
+    "macro_f1_ci_hi": 0.7109702966834882,
+    "accuracy": 0.561835075493612,
+    "per_class": {
+      "A": {
+        "precision": 0.4868,
+        "recall": 0.5211,
+        "f1": 0.5034,
+        "support": 71
+      },
+      "B": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 24
+      },
+      "C_langgraph": {
+        "precision": 0.4925,
+        "recall": 0.4583,
+        "f1": 0.4748,
+        "support": 72
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "A",
+        "B",
+        "C_langgraph"
+      ],
+      "matrix": [
+        [
+          37,
+          0,
+          34
+        ],
+        [
+          0,
+          24,
+          0
+        ],
+        [
+          39,
+          0,
+          33
+        ]
+      ]
+    },
+    "pairwise_separability": {
+      "A vs B": {
+        "cross_confusions": 0,
+        "separability": 1.0
+      },
+      "A vs C_langgraph": {
+        "cross_confusions": 73,
+        "separability": 0.4895
+      },
+      "B vs C_langgraph": {
+        "cross_confusions": 0,
+        "separability": 1.0
+      }
+    }
+  },
+  "timing_ablation": {
+    "n_timing_features_dropped": 29,
+    "result_no_timing": {
+      "macro_f1": 0.5839280737095383,
+      "macro_f1_ci_lo": 0.5710433197663487,
+      "macro_f1_ci_hi": 0.6761243791249916,
+      "accuracy": 0.5188734030197445,
+      "per_class": {
+        "A": {
+          "precision": 0.4366,
+          "recall": 0.4366,
+          "f1": 0.4366,
+          "support": 71
+        },
+        "B": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 24
+        },
+        "C_langgraph": {
+          "precision": 0.4444,
+          "recall": 0.4444,
+          "f1": 0.4444,
+          "support": 72
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "A",
+          "B",
+          "C_langgraph"
+        ],
+        "matrix": [
+          [
+            31,
+            0,
+            40
+          ],
+          [
+            0,
+            24,
+            0
+          ],
+          [
+            40,
+            0,
+            32
+          ]
+        ]
+      },
+      "pairwise_separability": {
+        "A vs B": {
+          "cross_confusions": 0,
+          "separability": 1.0
+        },
+        "A vs C_langgraph": {
+          "cross_confusions": 80,
+          "separability": 0.4406
+        },
+        "B vs C_langgraph": {
+          "cross_confusions": 0,
+          "separability": 1.0
+        }
+      }
+    },
+    "A_vs_C_separability_full": 0.4895,
+    "A_vs_C_separability_no_timing": 0.4406
+  },
+  "confound_control_comparison": {
+    "original_confounded": {
+      "macro_f1_full": 0.9981811732991357,
+      "A_vs_C_separability_full": 0.9972,
+      "A_vs_C_separability_no_timing": 0.9889
+    },
+    "interleaved_controlled": {
+      "A_vs_C_2way_macro_f1_full": 0.4600727513227514,
+      "A_vs_C_2way_macro_f1_no_timing": 0.3826954708735858,
+      "A_vs_C_separability_full_from_3way": 0.4895,
+      "macro_f1_full_3way": 0.6055097052786927
+    },
+    "thresholds": {
+      "collapse_at_or_below": 0.6,
+      "survive_at_or_above": 0.85
+    }
+  },
+  "verdict_A_vs_C": "COLLAPSES \u2014 A\u2194C falls toward chance once the session confound is removed, so the original near-perfect number was BATCH-INFLATED. Phase-1 within-family (A/B/C) ID is HONESTLY DEMOTED to 'not separable under control'. (Distinct-framework ID, e.g. a2a_mcp vs ours, is unaffected \u2014 genuinely different structure.)",
+  "verdict_full_3way": "PARTIAL under control (macro-F1 0.606, CI above chance)"
+}

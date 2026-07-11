@@ -1,0 +1,94 @@
+{
+  "task": "cross-INSTANCE role transfer on a2a_mcp (Phase 2 \u2014 deployable-attack test)",
+  "hypothesis": "two independent instances of the SAME framework share call structure and differ only in surface variables (LLM, prompts, session), so role transfer SHOULD work \u2014 a prediction, not a guarantee.",
+  "independence_of_instance2": {
+    "different_llm": "gemini-2.0-flash (instance 1 = gemini-2.5-flash), via LITELLM_MODEL",
+    "different_prompts": "reworded query template, different dates/party-size/class/nights",
+    "separate_session": true,
+    "shared": "the a2a_mcp framework's fixed six roles by port (10100-10105)"
+  },
+  "representation": "35-dim per-agent traffic-shape vector (features/per_flow.py); port is the LABEL only, never a feature.",
+  "method": "fit GBT on train instance, predict test instance (_transfer pattern); macro-F1 with bootstrap 95% CI (seed 42); chance = 1/n_test_roles.",
+  "roles_present_instance1": {
+    "air_ticketing": 17,
+    "car_rental": 17,
+    "hotel": 17,
+    "mcp": 150,
+    "orchestrator": 150,
+    "planner": 150
+  },
+  "roles_present_instance2": {
+    "air_ticketing": 4,
+    "car_rental": 4,
+    "hotel": 4,
+    "mcp": 67,
+    "orchestrator": 67,
+    "planner": 67
+  },
+  "common_roles_used": [
+    "mcp",
+    "orchestrator",
+    "planner"
+  ],
+  "min_samples_per_role": 5,
+  "n_way": 3,
+  "role_transfer": {
+    "inst1_to_inst2": {
+      "macro_f1": 0.9119686385068134,
+      "ci_lo": 0.8715181852114461,
+      "ci_hi": 0.946610040058203,
+      "accuracy": 0.9104477611940298,
+      "n_test": 201,
+      "chance": 0.3333333333333333,
+      "test_classes": [
+        "mcp",
+        "orchestrator",
+        "planner"
+      ]
+    },
+    "inst2_to_inst1": {
+      "macro_f1": 1.0,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "accuracy": 1.0,
+      "n_test": 450,
+      "chance": 0.3333333333333333,
+      "test_classes": [
+        "mcp",
+        "orchestrator",
+        "planner"
+      ]
+    },
+    "weaker_direction_macro_f1": 0.9119686385068134
+  },
+  "coordinator_vs_specialist": {
+    "caveat": "PARTLY STRUCTURAL \u2014 hubs carry more traffic than leaves, so this rides on connection volume (like topology), not subtle per-agent behaviour. The behavioural headline is the multi-role transfer above.",
+    "inst1_to_inst2": {
+      "macro_f1": 0.7319221967963387,
+      "ci_lo": 0.6249316898415205,
+      "ci_hi": 0.8225434942416074,
+      "accuracy": 0.8967136150234741,
+      "n_test": 213,
+      "chance": 0.5,
+      "test_classes": [
+        "coordinator",
+        "specialist"
+      ]
+    },
+    "inst2_to_inst1": {
+      "macro_f1": 0.9267543859649123,
+      "ci_lo": 0.882846935469195,
+      "ci_hi": 0.9647811416252694,
+      "accuracy": 0.9760479041916168,
+      "n_test": 501,
+      "chance": 0.5,
+      "test_classes": [
+        "coordinator",
+        "specialist"
+      ]
+    }
+  },
+  "verdict_phase2": "DEPLOYABLE ATTACK (\u22650.70, CI clear of chance)",
+  "verdict_basis": "weaker of the two directions (brief \u00a74).",
+  "caveats": "Single second instance; specialist roles (air/hotel/car) are sparse because a2a_mcp's LLM-planned routing fans out to them only sometimes, so the transfer is dominated by the always-present coordinator roles (mcp/orchestrator/planner) \u2014 see roles_present_*. Report is on the roles that met the \u2265N-sample bar."
+}
