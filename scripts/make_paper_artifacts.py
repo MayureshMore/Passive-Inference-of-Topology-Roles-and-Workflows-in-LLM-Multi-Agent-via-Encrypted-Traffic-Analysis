@@ -325,43 +325,52 @@ def fig_framework_id() -> Path | None:
 
 
 def fig_cross_instance_transfer() -> Path | None:
-    """Phase 2 — role transfer between two independent instances of a2a_mcp (both directions)."""
+    """Phase 2 — cross-instance role transfer: coordinator layer (deployable) vs full 6-way
+    (partial, driver-confounded specialists)."""
     d = _load(RESULTS / "cross_instance_transfer.json")
     if not d or "role_transfer" not in d:
         return None
-    rt = d["role_transfer"]
-    dirs = [("inst1_to_inst2", "train inst 1\n→ test inst 2"),
-            ("inst2_to_inst1", "train inst 2\n→ test inst 1")]
-    names, f1v, err = [], [], []
-    for key, lbl in dirs:
-        r = rt.get(key)
-        if not r:
-            continue
-        names.append(lbl); f1v.append(r["macro_f1"])
-        err.append((max(0, r["macro_f1"] - r["ci_lo"]), max(0, r["ci_hi"] - r["macro_f1"])))
-    chance = rt["inst1_to_inst2"]["chance"]
-    weak = rt["weaker_direction_macro_f1"]
-    roles = d.get("common_roles_used", [])
-    fig, ax = plt.subplots(figsize=(6.8, 4.5))
-    xs = np.arange(len(names))
-    ax.bar(xs, f1v, 0.5, yerr=np.array(err).T, capsize=5, color=["#3182bd", "#9ecae1"])
-    for i, x in enumerate(xs):
-        ax.text(x, f1v[i] + 0.03, f"{f1v[i]:.2f}", ha="center", fontsize=11, fontweight="bold")
-    ax.hlines(chance, -0.4, len(names) - 0.6, colors="crimson", linestyles="--", lw=1.4)
-    ax.text(len(names) - 0.6, chance + 0.012, f"chance {chance:.2f}", ha="right", fontsize=8, color="crimson")
-    ax.hlines(0.70, -0.4, len(names) - 0.6, colors="#238b45", linestyles=":", lw=1.4)
-    ax.text(-0.38, 0.71, "§4 DEPLOYABLE ≥0.70", ha="left", fontsize=8, color="#238b45")
-    ax.set_xticks(xs); ax.set_xticklabels(names)
-    ax.set_ylabel("macro-F1 (GBT transfer, 95% CI)"); ax.set_ylim(0, 1.15)
-    n2 = d.get("roles_present_instance2", {})
-    spec = min((n2.get(r, 0) for r in ("air_ticketing", "hotel", "car_rental")), default=0)
+    rt = d["role_transfer"]; coord = d.get("coordinator_layer_3way_clean")
+    # group 1 = coordinator 3-way (natural, deployable); group 2 = full 6-way (driver-confounded)
+    groups = []
+    if coord:
+        groups.append(("coordinator 3-way\n(natural, DEPLOYABLE)", coord, "#2e7d32"))
+    groups.append((f"full {d.get('n_way', 6)}-way\n(+boosted specialists, PARTIAL)", rt, "#c99a00"))
+    fig, ax = plt.subplots(figsize=(7.4, 4.7))
+    xs = []; x = 0
+    for gi, (glabel, src, color) in enumerate(groups):
+        for di, (key, dl) in enumerate((("inst1_to_inst2", "1→2"), ("inst2_to_inst1", "2→1"))):
+            r = src.get(key)
+            if not r:
+                continue
+            xpos = x
+            err = [[max(0, r["macro_f1"] - r["ci_lo"])], [max(0, r["ci_hi"] - r["macro_f1"])]]
+            ax.bar(xpos, r["macro_f1"], 0.7, yerr=err, capsize=4,
+                   color=color, alpha=1.0 if di == 0 else 0.55)
+            ax.text(xpos, r["macro_f1"] + 0.025, f"{r['macro_f1']:.2f}", ha="center",
+                    fontsize=10, fontweight="bold")
+            ax.text(xpos, 0.04, dl, ha="center", fontsize=8, color="white", fontweight="bold")
+            xs.append((xpos, glabel))
+            x += 1
+        x += 0.7  # gap between groups
+    ax.hlines(0.70, -0.5, x - 1, colors="#238b45", linestyles=":", lw=1.4)
+    ax.text(-0.45, 0.715, "§4 DEPLOYABLE ≥0.70", ha="left", fontsize=8, color="#238b45")
+    ax.hlines(0.167, -0.5, x - 1, colors="crimson", linestyles="--", lw=1.2)
+    ax.text(x - 1, 0.18, "6-way chance 0.17", ha="right", fontsize=7.5, color="crimson")
+    # group labels centered
+    seen = {}
+    for xpos, glabel in xs:
+        seen.setdefault(glabel, []).append(xpos)
+    ax.set_xticks([np.mean(v) for v in seen.values()])
+    ax.set_xticklabels(list(seen.keys()), fontsize=8.5)
+    ax.set_ylabel("macro-F1 (GBT transfer, 95% CI)"); ax.set_ylim(0, 1.15); ax.set_xlim(-0.6, x - 0.9)
+    sdc = d.get("specialist_distribution_check", {}).get("_summary", {})
     ax.set_title(
-        f"Phase 2: role transfer across two independent a2a_mcp instances\n"
-        f"(diff LLM 2.5→2.0-flash, diff prompts, diff session) — {len(roles)}-way "
-        f"coordinator layer ({'/'.join(roles)})\n"
-        f"weaker direction {weak:.2f} → §4 DEPLOYABLE  |  specialists too sparse "
-        f"(n≈{spec}/inst-2, <5 bar) — untested",
-        fontsize=8.3)
+        "Phase 2: cross-instance role transfer (two independent a2a_mcp instances)\n"
+        "coordinator layer transfers DEPLOYABLY; full 6-way is PARTIAL but the boosted-driver\n"
+        f"specialists are distribution-shifted ({sdc.get('specialists_comparable','0/3')} comparable) "
+        "— a candidate confound, not clean behavioural non-transfer",
+        fontsize=8.2)
     fig.tight_layout()
     p = FIGS / "cross_instance_transfer.png"; fig.savefig(p, dpi=150); plt.close(fig)
     return p
@@ -406,7 +415,7 @@ def fig_confound_control() -> Path | None:
         return None
     R = d["results"]
     rows = []
-    for task in ("workflow", "role", "topology"):
+    for task in ("workflow", "role", "topology", "parallelism"):
         r = R.get(task)
         if not r:
             continue

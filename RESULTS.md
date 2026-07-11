@@ -343,20 +343,22 @@ to the committed (batch-collected) baselines. `data/results/confound_control.jso
 
 - **Role & topology** use the powered interleaved-A capture (`collect_interleaved.sh`; deployment A,
   llama3.2:3b, all four workflows round-robined across the session — 239 traces).
-- **Workflow** uses a dedicated prompt-diverse interleaved capture (`collect_wf_interleaved.sh`;
-  4 workflows round-robined in short blocks across the session, **fresh prompts each cycle** via the
-  new `run_pilot --seed-offset`, so the group-CV — which holds out whole prompts — has real prompt
-  diversity). Compared against the committed **star-only** baseline for a like-for-like read.
+- **Workflow** uses a dedicated prompt-diverse interleaved capture across **all three topologies**
+  (`collect_wf_interleaved.sh` with `star chain mesh`; 432 traces, 4 workflows round-robined in short
+  blocks, **fresh prompts each cycle** via the new `run_pilot --seed-offset` so the group-CV — which
+  holds out whole prompts — has real prompt diversity: 50–76 prompt-groups/workflow). Compared against
+  the committed **all-topology** 0.708 baseline; a star-only capture corroborates (0.690).
 
 | Core task | committed (batched) | same-session interleaved (controlled) | Δ | verdict |
 |---|---|---|---|---|
-| **workflow** | 0.723 [0.667, 0.790] | **0.690 [0.622, 0.767]** | −0.03 | **SURVIVES** (CI overlap) |
+| **workflow** | 0.708 [0.672, 0.743] | **0.651 [0.616, 0.697]** | −0.06 | **SURVIVES** (CI overlap; star-only 0.69 corroborates) |
 | **role** | 0.864 [0.847, 0.879] | **0.886 [0.853, 0.903]** | +0.02 | **SURVIVES** |
 | **topology** | 0.995 [0.988, 1.000] | **1.000 [1.000, 1.000]** | +0.01 | **SURVIVES** |
+| **parallelism** | 0.989 [0.979, 0.996] | **1.000 [1.000, 1.000]** | +0.01 | **SURVIVES** |
 | framework-ID (A↔C) | 0.997 | **0.46** | −0.51 | COLLAPSES → demoted (§8.1) |
 
-**All three core recovery claims are unchanged under the same control that demolished framework-ID.**
-The interleaved macro-F1s land within noise of the committed baselines (CIs overlap; |Δ| ≤ 0.03),
+**All four core recovery claims are unchanged under the same control that demolished framework-ID.**
+The interleaved macro-F1s land within noise of the committed baselines (CIs overlap; |Δ| ≤ 0.06),
 while framework-ID falls from 0.997 to chance. This is the crux of the paper's internal validity: a
 capture-session confound inflates classification *between separately-captured classes* (framework-ID:
 A, B, C each in their own session) but **cannot** create the core signal, because workflow / role /
@@ -368,8 +370,8 @@ traffic shape**, not the setup it was captured in.
 (§3), and cross-instance role transfer (§9) — are **already conservative** with respect to this
 confound and need no separate control: they *train on one capture and test on a different one*, so a
 capture-session artefact would make train/test **mismatch** and *degrade* transfer, never inflate it.
-That A→C transfers at 0.64/0.83 and instance-1→instance-2 at 0.912 *across* sessions is therefore a
-floor, not a confound-inflated ceiling. The confound direction matters: it inflates *separability
+That A→C transfers at 0.64/0.83 and the cross-instance coordinator layer at 0.87–0.91 (§9a) *across*
+sessions is therefore a floor, not a confound-inflated ceiling. The confound direction matters: it inflates *separability
 between separately-captured classes* (framework-ID) and *lowers* cross-capture *transfer* — so §8.2's
 within-capture controls plus the cross-capture transfers together cover every classification claim.
 
@@ -390,41 +392,59 @@ We stood up a **second, independent instance** of a2a_mcp and tested train-on-on
 both directions. `data/results/cross_instance_transfer.json` +
 [`figures/cross_instance_transfer.png`](data/results/figures/cross_instance_transfer.png).
 
-**Instance-2 independence (the axes that would break a brittle fingerprint):** different LLM
-(`gemini-2.0-flash` vs instance-1's `gemini-2.5-flash`, via a2a_mcp's own `LITELLM_MODEL`),
-reworded prompt template (different destinations/dates/party-size/class/nights), separate capture
-session. **Shared:** only the framework's fixed six roles by port (10100–10105) — which is the
-whole point. Representation and method are identical to §7.1 (35-dim per-agent traffic-shape
-vector; **port is the label, never a feature**; GBT `_transfer`, macro-F1 + bootstrap 95% CI,
-seed 42). Instance 2 = **67 trips** (`data/raw_offtheshelf_inst2`, gemini-2.0-flash, ~$2.6 real spend).
+**Instance-2 independence axes:** different LLM (`gemini-2.0-flash` vs instance-1's
+`gemini-2.5-flash`, via a2a_mcp's own `LITELLM_MODEL`), reworded prompts, separate session. Method
+is identical to §7.1 (35-dim per-agent traffic-shape vector; **port is the label, never a feature**;
+GBT `_transfer`, macro-F1 + bootstrap 95% CI, seed 42). Instance 2 = **82 trips**
+(`data/raw_offtheshelf_inst2`, gemini-2.0-flash). Weaker direction is the headline; verdict fields
+match the numbers.
 
-| Direction | macro-F1 [95% CI] | acc | n_test | chance |
-|---|---|---|---|---|
-| train inst-1 → test inst-2 | **0.912 [0.872, 0.947]** | 0.910 | 201 | 0.333 |
-| train inst-2 → test inst-1 | 1.000 [1.000, 1.000] | 1.000 | 450 | 0.333 |
+### 9a. Coordinator layer (natural both instances) — DEPLOYABLE
 
-**Verdict (§4 pre-registered, weaker direction is the headline): DEPLOYABLE ATTACK** — the weaker
-direction is **0.912**, CI floor 0.872 sits far clear of the 0.333 chance line, above the ≥0.70
-bar. A classifier trained on one instance recovers roles on an *independent* instance despite a
-different LLM, different prompts, and a different session. This is the strongest evidence in the
-study that the attack is **portable**, not memorized per-deployment.
+The three coordinators (`mcp`/`orchestrator`/`planner`) fire on **every** trip, so their samples are
+natural in both instances. Cross-instance transfer, both directions:
 
-> **⚠ Scope it honestly — this is the 3-role COORDINATOR layer, not the full 6-way.** a2a_mcp's
-> LLM-planned routing fans out to the three specialists (air/hotel/car) only *sometimes*, and in
-> instance 2 they fired in ~6% of trips — **n≈4 each, below the ≥5-sample bar** — so they are
-> **excluded**. The transfer above is over the three *always-present* coordinators
-> (`mcp`/`orchestrator`/`planner`). Cross-instance **specialist** transfer is **untested here** — a
-> data-sparsity gap (LLM-planned fan-out + a budget-bounded second capture), **not** a negative
-> result. Two further honesties: (1) the perfect 1.000 direction rides on instance-2's small, clean
-> training set — we headline the weaker **0.912**, not the 1.000; (2) the three coordinators do
-> structurally different jobs (MCP tool-server vs top-level hub vs one-shot planner), so part of
-> their separability is volumetric — but the non-trivial, deployability-relevant claim is that it
-> **transfers across the independence axes**, which it does.
+| Direction | 3-way coordinator macro-F1 [95% CI] | chance |
+|---|---|---|
+| train inst-1 → test inst-2 | **0.866 [0.821, 0.907]** | 0.333 |
+| train inst-2 → test inst-1 | 0.996 [0.988, 1.000] | 0.333 |
 
-**Coordinator-vs-specialist (2-way, both directions):** weaker direction macro-F1 **0.732
-[0.625, 0.823]** (acc 0.897), stronger 0.927 — *also* transfers, but flagged **partly structural**
-(hub-vs-leaf rides on connection volume like topology, not subtle per-agent behavior). The
-behavioral headline remains the 3-way coordinator transfer above.
+**Verdict (§4): DEPLOYABLE ATTACK** — weaker direction **0.866**, CI floor 0.821 far clear of chance,
+above the ≥0.70 bar. Train on your own copy of a2a_mcp, read the coordinator roles off an independent
+victim copy despite different LLM/prompts/session. (An earlier 67-trip instance-2 gave 0.912; the
+number is stable as instance-2 grows.) This is the paper's clean deployable-attack result.
+
+### 9b. Full six roles (with specialists) — PARTIAL, and honestly **driver-confounded**
+
+To test the three **specialists** (air/hotel/car — the structurally-identical leaves, i.e. the genuine
+*behavioural* test), we needed ≥15 samples each in instance-2. a2a_mcp's LLM-planned routing fans out
+to specialists only ~6% of natural trips, so we topped up instance-2 with a **fan-out-boosted driver**
+(`drive_orch_boost.py` + fully-specified queries; the original ~6% was a Tokyo-hardcoded canned answer
+sabotaging the planner on other destinations). This reached air/hotel/car = 15/15/15 for **~$0.75**.
+
+| Direction | 6-way macro-F1 [95% CI] | chance |
+|---|---|---|
+| train inst-1 → test inst-2 | 0.682 [0.634, 0.723] | 0.167 |
+| train inst-2 → test inst-1 | **0.605 [0.555, 0.657]** | 0.167 |
+
+**Verdict (§4): PARTIAL** — weaker direction **0.605** (0.40–0.70), well above the 0.167 chance line
+but below the 0.70 deployable bar. **We report the band the number lands in, not the one we hoped for.**
+
+> **⚠ This 6-way is CONFOUNDED by the boosted driver — read before interpreting.** The boosted driver
+> is an *added* axis of difference: instance-2's specialists were collected under forced full-service
+> prompts, instance-1's under natural routing. A per-agent feature-distribution check (inst-1 natural
+> vs inst-2 boosted; standardized mean difference) finds them **not comparable — 0/3 specialists**
+> (median |SMD| = air 3.0, hotel 0.95, car 1.3; mean-vector cosine 0.97–0.99, i.e. same direction but
+> a real magnitude/scale shift, consistent with the more verbose forced prompts). So the drop below
+> 0.70 **cannot be cleanly attributed to "behaviour doesn't transfer"** — the train-natural/test-forced
+> distribution shift is a live candidate contributor. We name it rather than fold it into a tidy
+> "structure transfers, behaviour is structure-gated" story. The honest status: the specialist
+> *behavioural* transfer is **advanced but not cleanly resolved** — the fan-out boost that made it
+> affordable also confounded it; a clean natural-specialist test needs ~250 more natural trips (~$12),
+> logged as future work. `specialist_distribution_check` + `driver_confound_interpretation` in the JSON.
+
+**Coordinator-vs-specialist (2-way):** weaker direction **0.758 [0.696, 0.813]**, stronger 0.875 —
+transfers, but flagged **partly structural** (hub-vs-leaf rides on connection volume like topology).
 
 ---
 
@@ -433,19 +453,22 @@ behavioral headline remains the 3-way coordinator transfer above.
 A passive observer, seeing only encrypted-traffic metadata, recovers **workflow** (GBT
 0.71) and **agent role** (0.86) far above chance. The signal is **caused by the inter-agent
 call structure** — invariant to the **LLM model** (0.68→0.59) and to the **orchestration
-runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). All three core
+runtime** (A→C 0.64), destroyed by changing the **structure** (A→B 0.29). All four core
 recovery claims are **confound-controlled**: under a same-session interleaved capture (§8.2) —
 the very control that collapses the auxiliary framework-ID number from 0.997 to chance — workflow
-(0.69), role (0.89) and topology (1.00) are **unchanged** (|Δ| ≤ 0.03), proving the signal is
-genuine call-structure traffic shape, not a capture artefact. It holds on **real
+(0.65), role (0.89), topology (1.00) and parallelism (1.00) are **unchanged** (|Δ| ≤ 0.06), proving
+the signal is genuine call-structure traffic shape, not a capture artefact. It holds on **real
 WAN traffic** in-domain, and **survives current defenses** (~70% F1 retained at ~30%
 bandwidth). Crucially, the **role fingerprint REPLICATES on a system we did not build**
 (a2a_mcp: **6-way role macro-F1 0.906** from per-agent traffic shape — the behavioral result;
 the coordinator-vs-specialist 1.000 is *partly structural*, and topology recovers as hub-and-spoke
 from headers alone) — and, on a **second independent instance** of that framework (different LLM,
-prompts, session), a role classifier **transfers across instances at macro-F1 0.912** on the
-always-present coordinator layer (§9, weaker direction, ≥0.70 §4 bar) — the deployable-attack
-result: train on your own copy, read roles off a victim's. A2A-vs-background *detection* separates
+prompts, session), a role classifier **transfers across instances at macro-F1 0.87–0.91** on the
+always-present coordinator layer (§9a, weaker direction, ≥0.70 §4 bar — **DEPLOYABLE**) — the
+deployable-attack result: train on your own copy, read roles off a victim's. The full six-role
+transfer including the sparse specialists is **partial (0.61)** and honestly **driver-confounded**
+(the fan-out boost needed to afford specialist samples shifted their distributions — §9b), so the
+specialist *behavioural* transfer is advanced but not cleanly resolved. A2A-vs-background *detection* separates
 a2a_mcp at AUC 1.000, but **only against non-agentic negatives** — so real-world detectability
 (vs. other agentic SSE frameworks) remains an **open problem**, not a claim. A **same-session
 interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
@@ -458,9 +481,11 @@ confound is removed — so within-family framework/implementation ID is a batch 
 the same-session control; the separate-session 0.998 was batch-confounded), LAN→WAN transfer,
 cross-*framework label* transfer (A↔a2a_mcp taxonomies are disjoint — role *replicates*
 independently, but shared-label transfer is undefined; only a partial coordinator-vs-specialist
-transfer at 0.67), **cross-instance transfer of the sparse
-specialist roles** (§9 demonstrates it for the coordinator layer at 0.912, but the air/hotel/car
-specialists fired too rarely in the second instance to test — a data-sparsity gap, not a
-negative), a workflow fingerprint on an external (LLM-planned) system, cross-*framework*
+transfer at 0.76), **clean cross-instance transfer of the specialist (leaf) roles** (§9b — the
+full 6-way lands at PARTIAL 0.61, but the fan-out boost needed to collect ≥15 specialist samples
+in the second instance shifted their feature distributions, so that number is **driver-confounded**;
+the coordinator layer transfers deployably at §9a, but the specialist *behavioural* transfer needs a
+~$12 natural-collection test to resolve cleanly), a workflow fingerprint on an external (LLM-planned)
+system, cross-*framework*
 generalization (C is a control), strong open-set rejection of novel workflows/roles, or a
 detector robust to hard agentic negatives — all explicitly future work.

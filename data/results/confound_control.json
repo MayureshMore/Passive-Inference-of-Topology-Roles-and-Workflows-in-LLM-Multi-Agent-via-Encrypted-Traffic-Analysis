@@ -1,10 +1,32 @@
 {
   "task": "confound audit \u2014 do core recovery claims survive same-session interleaved capture?",
-  "logic": "The framework-ID A\u2194C fingerprint was a capture-session/batch confound (0.997\u2192chance). This re-runs the CORE tasks (workflow/role/topology) on interleaved captures. If they hold within noise of the committed baselines, they are NOT capture artefacts \u2014 the same control that broke framework-ID leaves the real attack intact.",
+  "logic": "The framework-ID A\u2194C fingerprint was a capture-session/batch confound (0.997\u2192chance). This re-runs the CORE tasks (workflow/role/topology/parallelism) on interleaved captures. If they hold within noise of the committed baselines, they are NOT capture artefacts \u2014 the same control that broke framework-ID leaves the real attack intact.",
   "method": "GBT; group-safe 5-fold StratifiedGroupKFold by prompt_group; macro-F1 + bootstrap 95% CI; seed 42. Port never a feature.",
   "results": {
     "workflow": {
       "interleaved": {
+        "macro_f1": 0.6513225631993599,
+        "ci_lo": 0.6164536402476322,
+        "ci_hi": 0.6970628539181647,
+        "n": 432,
+        "n_classes": 4,
+        "chance": 0.25,
+        "prompt_groups_per_class": {
+          "code_review": 53,
+          "data_analysis": 64,
+          "research_retrieval": 50,
+          "support_triage": 76
+        }
+      },
+      "committed_baseline": {
+        "macro_f1": 0.707852434399029,
+        "ci_lo": 0.6724465579282759,
+        "ci_hi": 0.7425345147627138
+      },
+      "committed_baseline_source": "committed closed_world_gbt_workflow.json (all topologies)",
+      "verdict": "SURVIVES (interleaved within noise of committed \u2014 not a capture confound)",
+      "topologies": "star+chain+mesh",
+      "star_only_corroboration": {
         "macro_f1": 0.6895489069753775,
         "ci_lo": 0.6222047300697192,
         "ci_hi": 0.7669286869523256,
@@ -17,23 +39,7 @@
           "research_retrieval": 25,
           "support_triage": 32
         }
-      },
-      "committed_baseline": {
-        "macro_f1": 0.7231690969848865,
-        "ci_lo": 0.6665858633586877,
-        "ci_hi": 0.7900482810857453,
-        "n": 200,
-        "n_classes": 4,
-        "chance": 0.25,
-        "prompt_groups_per_class": {
-          "code_review": 34,
-          "data_analysis": 41,
-          "research_retrieval": 30,
-          "support_triage": 45
-        }
-      },
-      "committed_baseline_source": "committed data/processed, star-only, recomputed",
-      "verdict": "SURVIVES (interleaved within noise of committed \u2014 not a capture confound)"
+      }
     },
     "topology": {
       "interleaved": {
@@ -56,6 +62,27 @@
       },
       "committed_baseline_source": "committed closed_world_gbt_topology.json (all topologies)",
       "verdict": "SURVIVES (interleaved within noise of committed \u2014 not a capture confound)"
+    },
+    "parallelism": {
+      "interleaved": {
+        "macro_f1": 1.0,
+        "ci_lo": 1.0,
+        "ci_hi": 1.0,
+        "n": 239,
+        "n_classes": 2,
+        "chance": 0.5,
+        "prompt_groups_per_class": {
+          "sequential": 4,
+          "parallel": 8
+        }
+      },
+      "committed_baseline": {
+        "macro_f1": 0.9887709365416372,
+        "ci_lo": 0.9788426814916141,
+        "ci_hi": 0.9963759019195975
+      },
+      "committed_baseline_source": "committed closed_world_gbt_parallelism.json",
+      "verdict": "SURVIVES (small drop, still far above chance)"
     },
     "role": {
       "interleaved": {
@@ -89,11 +116,12 @@
     "core_claims_surviving_control": [
       "workflow",
       "topology",
+      "parallelism",
       "role"
     ],
     "confounded_and_demoted": [
       "framework_id_A_vs_C"
     ],
-    "headline": "Workflow, role and topology recovery are UNCHANGED under the same-session interleaved control (\u0394 \u2264 ~0.03); only the auxiliary framework-identification claim collapsed. The core attack is confound-controlled, not a capture artefact."
+    "headline": "Workflow, role, topology and parallelism recovery are UNCHANGED under the same-session interleaved control (|\u0394| \u2264 0.06); only the auxiliary framework-identification claim collapsed. The core attack is confound-controlled, not a capture artefact."
   }
 }

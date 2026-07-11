@@ -48,7 +48,9 @@ from scripts.evaluate_offtheshelf_fingerprint import extract_role_samples, coars
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-MIN_N = 5  # a role must have ≥ this many samples in BOTH instances to enter the transfer
+MIN_N = int(os.environ.get("MIN_N", "5"))  # a role needs ≥ this many samples in BOTH instances
+# (default 5 reproduces the committed coordinator result; the 6-way run sets MIN_N=10 so a noisy
+#  4-5-sample specialist can never enter — per-class F1 on n=5 is noise, worse than none.)
 
 
 def counts(y):
@@ -83,6 +85,48 @@ def band(mf, ci_lo, chance):
     return "BOUNDED (<0.40 or CI touches chance)"
 
 
+SPECIALISTS = ("air_ticketing", "hotel", "car_rental")
+
+
+def specialist_distribution_check(X1, y1, X2, y2):
+    """Instance-2's specialist samples were collected with the fan-out-BOOSTED driver +
+    fully-specified prompts (a confound axis). Compare per-agent feature distributions of each
+    specialist role across instances so a driver artefact cannot masquerade as a result:
+      * if the 6-way is ≥0.70, comparable distributions show the positive is robust (indeed the
+        driver difference makes it a HARDER test: train on inst-1 NATURAL specialists, test on
+        inst-2 FORCED ones);
+      * if the 6-way is <0.70, a large distribution gap flags the driver as a possible contributor
+        to the drop — it must be named, not folded silently into a 'behaviour-doesn't-transfer'
+        narrative.
+    Metric: per-feature standardized mean difference (|SMD| = |mean1-mean2| / pooled_std); a role
+    is 'comparable' if median |SMD| < 0.5 and < 25% of features exceed |SMD| = 1."""
+    y1 = np.asarray(y1); y2 = np.asarray(y2)
+    out = {}
+    for role in SPECIALISTS:
+        A = X1[y1 == role]; B = X2[y2 == role]
+        if len(A) < 3 or len(B) < 3:
+            out[role] = {"n_inst1": int(len(A)), "n_inst2": int(len(B)), "note": "too few to compare"}
+            continue
+        mu1, mu2 = A.mean(0), B.mean(0)
+        pooled = np.sqrt((A.var(0) + B.var(0)) / 2.0) + 1e-9
+        smd = np.abs(mu1 - mu2) / pooled
+        cos = float(np.dot(mu1, mu2) / (np.linalg.norm(mu1) * np.linalg.norm(mu2) + 1e-9))
+        out[role] = {
+            "n_inst1": int(len(A)), "n_inst2": int(len(B)),
+            "median_abs_smd": round(float(np.median(smd)), 3),
+            "max_abs_smd": round(float(np.max(smd)), 3),
+            "frac_features_abs_smd_gt_1": round(float(np.mean(smd > 1.0)), 3),
+            "mean_vector_cosine": round(cos, 4),
+            "comparable": bool(np.median(smd) < 0.5 and np.mean(smd > 1.0) < 0.25),
+        }
+    n_comp = sum(1 for r in out.values() if r.get("comparable"))
+    out["_summary"] = {
+        "specialists_comparable": f"{n_comp}/{len(SPECIALISTS)}",
+        "all_comparable": n_comp == len(SPECIALISTS),
+    }
+    return out
+
+
 def main(args: argparse.Namespace) -> None:
     r1, r2 = Path(args.inst1), Path(args.inst2)
     if not any(r1.glob("*.pcap")):
@@ -111,6 +155,24 @@ def main(args: argparse.Namespace) -> None:
     weak_dir = f_1to2 if f_1to2["macro_f1"] <= f_2to1["macro_f1"] else f_2to1
     verdict = band(weak, weak_dir["ci_lo"], weak_dir["chance"])
 
+    # Clean coordinator-only 3-way (mcp/orchestrator/planner) — these fire on EVERY trip so their
+    # samples are NATURAL in both instances (no boosted driver), giving the unconfounded deployable
+    # result to contrast against the (driver-boosted) 6-way. Reported whenever ≥2 coordinators qualify.
+    coord_roles = [r for r in common if r in ("mcp", "orchestrator", "planner")]
+    coord_out = None
+    if len(coord_roles) >= 2:
+        X1k, y1k2 = restrict(X1, y1, coord_roles); X2k, y2k2 = restrict(X2, y2, coord_roles)
+        cc12 = transfer(X1k, y1k2, X2k, y2k2, f"{len(coord_roles)}-way COORD inst1→inst2")
+        cc21 = transfer(X2k, y2k2, X1k, y1k2, f"{len(coord_roles)}-way COORD inst2→inst1")
+        cweak = min(cc12["macro_f1"], cc21["macro_f1"])
+        cwd = cc12 if cc12["macro_f1"] <= cc21["macro_f1"] else cc21
+        coord_out = {
+            "note": "NATURAL both instances (coordinators fire on every trip; no boosted driver) — "
+                    "the clean, unconfounded deployable result.",
+            "roles": coord_roles, "inst1_to_inst2": cc12, "inst2_to_inst1": cc21,
+            "weaker_direction_macro_f1": cweak, "verdict": band(cweak, cwd["ci_lo"], cwd["chance"]),
+        }
+
     # coordinator-vs-specialist 2-way (partly structural) — both directions, if both classes exist.
     coarse_out = None
     y1k = np.array([coarse(r) for r in y1]); y2k = np.array([coarse(r) for r in y2])
@@ -124,15 +186,51 @@ def main(args: argparse.Namespace) -> None:
             "inst1_to_inst2": c_1to2, "inst2_to_inst1": c_2to1,
         }
 
+    # Specialist distribution check (Correction 2): inst-2 specialists were collected with the
+    # fan-out-boosted driver, so compare their per-agent feature distributions to inst-1's natural
+    # specialists — a driver artefact must not masquerade as a positive OR a boundary finding.
+    dist_check = specialist_distribution_check(X1, y1, X2, y2)
+    specialists_in_way = [r for r in common if r in SPECIALISTS]
+    all_comparable = dist_check.get("_summary", {}).get("all_comparable", False)
+    if specialists_in_way and weak >= 0.70:
+        driver_interpretation = (
+            "6-way ≥0.70 WITH specialists in the transfer. Instance-2's specialists were collected "
+            "with the boosted driver, which if anything makes this a HARDER test (train on inst-1 "
+            "NATURAL specialists, test on inst-2 FORCED ones). "
+            + ("Specialist feature distributions are COMPARABLE across instances (see "
+               "specialist_distribution_check), so the positive is not a driver artefact — it is "
+               "robust." if all_comparable else
+               "BUT specialist distributions are NOT all comparable across instances — the boosted "
+               "driver may be inflating similarity; treat the positive with caution and see "
+               "specialist_distribution_check."))
+    elif specialists_in_way and weak < 0.70:
+        driver_interpretation = (
+            "6-way <0.70 with specialists in the transfer. The boosted driver used for inst-2 "
+            "specialists is a POSSIBLE CONTRIBUTOR to the drop (train-natural / test-forced "
+            "mismatch), NOT necessarily 'behaviour doesn't transfer'. This must be named as a "
+            "candidate confound. "
+            + ("However specialist distributions are comparable across instances, which argues "
+               "against the driver being the whole story." if all_comparable else
+               "Specialist distributions differ across instances, consistent with the driver "
+               "contributing — the structure-vs-behaviour reading is confounded here."))
+    else:
+        driver_interpretation = ("No specialists met the ≥%d bar — this is the coordinator-layer "
+                                 "result; the boosted-driver axis does not apply." % MIN_N)
+
     out = {
         "task": "cross-INSTANCE role transfer on a2a_mcp (Phase 2 — deployable-attack test)",
         "hypothesis": "two independent instances of the SAME framework share call structure and "
-                      "differ only in surface variables (LLM, prompts, session), so role transfer "
-                      "SHOULD work — a prediction, not a guarantee.",
+                      "differ only in surface variables (LLM, prompts, session, driver), so role "
+                      "transfer SHOULD work — a prediction, not a guarantee.",
         "independence_of_instance2": {
             "different_llm": "gemini-2.0-flash (instance 1 = gemini-2.5-flash), via LITELLM_MODEL",
             "different_prompts": "reworded query template, different dates/party-size/class/nights",
             "separate_session": True,
+            "different_driver_for_specialists": "instance-2's specialist samples were topped up with "
+                "the fan-out-BOOSTED driver (drive_orch_boost.py) + fully-specified queries, because "
+                "a2a_mcp's natural fan-out to air/hotel/car is only ~6-11% of trips. This is an ADDED "
+                "axis of difference (cuts both ways — see driver_confound_interpretation and "
+                "specialist_distribution_check); the coordinator samples remain natural.",
             "shared": "the a2a_mcp framework's fixed six roles by port (10100-10105)",
         },
         "representation": "35-dim per-agent traffic-shape vector (features/per_flow.py); port is "
@@ -149,13 +247,15 @@ def main(args: argparse.Namespace) -> None:
             "inst2_to_inst1": f_2to1,
             "weaker_direction_macro_f1": weak,
         },
+        "coordinator_layer_3way_clean": coord_out,
         "coordinator_vs_specialist": coarse_out,
+        "specialist_distribution_check": dist_check,
+        "driver_confound_interpretation": driver_interpretation,
         "verdict_phase2": verdict,
-        "verdict_basis": "weaker of the two directions (brief §4).",
-        "caveats": "Single second instance; specialist roles (air/hotel/car) are sparse because "
-                   "a2a_mcp's LLM-planned routing fans out to them only sometimes, so the transfer "
-                   "is dominated by the always-present coordinator roles (mcp/orchestrator/planner) "
-                   "— see roles_present_*. Report is on the roles that met the ≥N-sample bar.",
+        "verdict_basis": "weaker of the two directions (brief §4); verdict field matches the number.",
+        "caveats": "Single second instance. Specialist samples (air/hotel/car) in instance-2 were "
+                   "collected with the boosted driver (see independence_of_instance2 + "
+                   "specialist_distribution_check); coordinator samples are natural.",
     }
 
     out_dir = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
