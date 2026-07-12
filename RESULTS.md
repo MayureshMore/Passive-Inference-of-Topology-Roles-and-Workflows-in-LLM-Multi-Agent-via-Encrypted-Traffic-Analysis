@@ -414,6 +414,15 @@ above the ≥0.70 bar. Train on your own copy of a2a_mcp, read the coordinator r
 victim copy despite different LLM/prompts/session. (An earlier 67-trip instance-2 gave 0.912; the
 number is stable as instance-2 grows.) This is the paper's clean deployable-attack result.
 
+**Volume ablation — the result is behavioural, not connection-volume.** Re-running the same transfer on a
+**shape-only** feature set (16/35 dims: per-packet size shape, IAT/duration/gap timing, burst-duration
+shape, and ratios — *dropping* all 19 raw count/byte-magnitude dims: packet/byte totals, cumulative-byte
+trajectory, burst byte magnitudes, and event counts) barely moves it: weaker direction **0.840
+[0.792, 0.884]**, still DEPLOYABLE and far above the ≥0.70 bar (`coordinator_shape_only_ablation`). Unlike
+the framework-ID timing ablation, where removing the signal collapsed it (0.46→0.38), removing volume
+here costs only 0.026 — the coordinator layer is recovered from per-agent traffic **shape/timing**, not
+the connection-volume signal already demoted to a topology baseline.
+
 ### 9b. Full six roles (with specialists) — PARTIAL, and honestly **driver-confounded**
 
 To test the three **specialists** (air/hotel/car — the structurally-identical leaves, i.e. the genuine
@@ -438,13 +447,75 @@ but below the 0.70 deployable bar. **We report the band the number lands in, not
 > a real magnitude/scale shift, consistent with the more verbose forced prompts). So the drop below
 > 0.70 **cannot be cleanly attributed to "behaviour doesn't transfer"** — the train-natural/test-forced
 > distribution shift is a live candidate contributor. We name it rather than fold it into a tidy
-> "structure transfers, behaviour is structure-gated" story. The honest status: the specialist
-> *behavioural* transfer is **advanced but not cleanly resolved** — the fan-out boost that made it
-> affordable also confounded it; a clean natural-specialist test needs ~250 more natural trips (~$12),
-> logged as future work. `specialist_distribution_check` + `driver_confound_interpretation` in the JSON.
+> "structure transfers, behaviour is structure-gated" story, and we **resolve it in §9b′** below.
+> `specialist_distribution_check` + `driver_confound_interpretation` in the JSON.
+
+### 9b′. De-confounded natural re-run — the distribution check is the gate
+
+We removed the driver confound: a **bug-fixed-but-not-forced** natural driver (`drive_orch_natural_fixed.py`
+— destination-agnostic so it doesn't hit the ~6% Tokyo bug, but *not* completion-forcing so it doesn't
+shift distributions) driven by **instance-2's own reworded prompt** and LLM (gemini-2.0-flash), so
+instance-2 stays internally self-consistent. Natural fan-out was **26.7%** (vs the bugged 6% and the
+forced ~90%), reaching air/hotel/car = 15/15/15 for **~$1.57** (well under the $15 cap; probe-then-project
+gate armed). `data/results/cross_instance_transfer_natural.json`.
+
+**The specialist distribution check is the gate, reported before the verdict.** Natural inst-1 vs natural
+inst-2 specialists: still **0/3 comparable**, but the gap **shrinks** vs the boosted run (median |SMD|:
+air 3.02→**2.54**, car 1.32→**1.00**, hotel 0.95→0.93) — evidence the boosted driver *was* contributing,
+now removed. A residual gap persists.
+
+| Run | 6-way weaker-dir macro-F1 | specialists comparable |
+|---|---|---|
+| boosted (§9b) | 0.605 | 0/3 (median|SMD| air 3.0) |
+| **natural (§9b′)** | **0.594** | 0/3 (air 2.5 — gap shrunk) |
+
+**Verdict (§4): PARTIAL, and now de-confounded (no re-stamp).** Removing the driver barely moved the
+number (0.605→**0.594**) — so the boosted driver was **not** masking a clean ≥0.70 positive. But because
+the distributions are still not comparable *with the driver gone*, the residual difference is now the
+**legitimate independence axes** (different LLM gemini-2.0-flash vs 2.5-flash, separate session), **not a
+driver artefact**. Per the pre-registered gate, a sub-0.70 here is therefore **partly LLM/session-
+attributable — not a clean "specialist behaviour does not transfer."** The honest status: the specialist
+cross-instance transfer is **genuinely PARTIAL (~0.59), robust to the driver confound**, with the residual
+gap owed to legitimate cross-instance independence. (The coordinator layer in the same natural run
+**corroborates §9a even more strongly: weaker 0.942, shape-only 0.942 — DEPLOYABLE**.)
 
 **Coordinator-vs-specialist (2-way):** weaker direction **0.758 [0.696, 0.813]**, stronger 0.875 —
 transfers, but flagged **partly structural** (hub-vs-leaf rides on connection volume like topology).
+
+---
+
+## 10. Cross-framework replication + transfer on **AutoGen** (Task 3 pilot — independent, non-A2A)
+
+The prior cross-framework question (§7 future work) was *does the attack generalize past A2A?* We
+stood up an **independently-structured, networked** system: AutoGen's **distributed gRPC runtime**
+(autogen-core 0.7.5) — a message-routing host with orchestrator/worker agents as gRPC *clients*
+(star-through-host), a fundamentally different protocol/serialization/control-flow than a2a's
+Starlette/JSON-RPC/SSE per-agent servers. An orchestrator routes sub-tasks to three specialists
+(researcher/writer/reviewer), each calling a **local ollama llama3.2:3b** (no API spend). Each
+agent runs in its own process ⇒ one gRPC TCP flow with a distinct ephemeral port; capture is
+lo0:50051 at 96-byte snaplen, role attributed by source-port sidecar (**port = label, never a
+feature**). Same 35-dim per-agent representation. n = 120 (30 trips × 4 roles), 25 topics for
+group-safe CV. `data/results/cross_framework_autogen.json`.
+
+**(a) The attack REPLICATES on AutoGen — and it is behavioural.** 4-way role recovery
+(orchestrator/researcher/writer/reviewer) **macro-F1 0.966 [0.931, 0.992]** (chance 0.25). Under
+the Task-1 **volume ablation** (drop all raw count/byte-magnitude dims, keep 16/35 shape+timing+
+ratio features) it is **unchanged at 0.966** — the fingerprint is per-agent *behaviour* (orchestrator
+dur ≈ 3.8 s / bytes-out-ratio 0.39 hub; writer longest response; reviewer 0.35 s one-liner), not
+connection volume. The vulnerability class is **not A2A-specific**.
+
+**(b) But a trained classifier does NOT portably transfer across frameworks.** On the only shared
+label space (coordinator-vs-specialist), cross-framework transfer is **asymmetric**: AutoGen→a2a_mcp
+**0.786 [0.712, 0.851]**, but a2a_mcp→AutoGen **0.429** (a2a's HTTP/JSON-RPC coordinators don't match
+AutoGen's gRPC orchestrator signature → predicts all-specialist). **Weaker direction 0.429 → BOUNDED**
+(§4, no re-stamp; shape-only identical). This **bounds portability, not the vulnerability**, and is
+consistent with the paper's **implementation-specificity** thesis: every framework is fingerprintable
+when you retrain on it, but the fingerprint is framework-specific — a defender cannot assume an
+attacker's off-the-shelf model, yet an attacker who retrains on the target framework succeeds.
+
+*Pilot caveats: single deployment topology, one LLM, AutoGen's own specialist roles (so a **fine**
+a2a↔AutoGen 6-way label transfer is undefined — disjoint taxonomies); CrewAI, a second topology,
+and a second LLM are the natural robustness extensions.*
 
 ---
 
@@ -466,9 +537,11 @@ from headers alone) — and, on a **second independent instance** of that framew
 prompts, session), a role classifier **transfers across instances at macro-F1 0.87–0.91** on the
 always-present coordinator layer (§9a, weaker direction, ≥0.70 §4 bar — **DEPLOYABLE**) — the
 deployable-attack result: train on your own copy, read roles off a victim's. The full six-role
-transfer including the sparse specialists is **partial (0.61)** and honestly **driver-confounded**
-(the fan-out boost needed to afford specialist samples shifted their distributions — §9b), so the
-specialist *behavioural* transfer is advanced but not cleanly resolved. A2A-vs-background *detection* separates
+transfer including the sparse specialists is **partial (~0.60)**; a **de-confounded natural re-run**
+(§9b′ — bug-fixed-but-not-forced driver, instance-2's own config, 15/15/15 for ~$1.57) leaves it
+essentially unchanged (0.605→**0.594**), so the driver was not masking a positive — the specialist
+transfer is **genuinely PARTIAL, with the residual gap owed to the legitimate different-LLM/session
+independence, not a driver artefact**. A2A-vs-background *detection* separates
 a2a_mcp at AUC 1.000, but **only against non-agentic negatives** — so real-world detectability
 (vs. other agentic SSE frameworks) remains an **open problem**, not a claim. A **same-session
 interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
@@ -481,11 +554,14 @@ confound is removed — so within-family framework/implementation ID is a batch 
 the same-session control; the separate-session 0.998 was batch-confounded), LAN→WAN transfer,
 cross-*framework label* transfer (A↔a2a_mcp taxonomies are disjoint — role *replicates*
 independently, but shared-label transfer is undefined; only a partial coordinator-vs-specialist
-transfer at 0.76), **clean cross-instance transfer of the specialist (leaf) roles** (§9b — the
-full 6-way lands at PARTIAL 0.61, but the fan-out boost needed to collect ≥15 specialist samples
-in the second instance shifted their feature distributions, so that number is **driver-confounded**;
-the coordinator layer transfers deployably at §9a, but the specialist *behavioural* transfer needs a
-~$12 natural-collection test to resolve cleanly), a workflow fingerprint on an external (LLM-planned)
-system, cross-*framework*
-generalization (C is a control), strong open-set rejection of novel workflows/roles, or a
-detector robust to hard agentic negatives — all explicitly future work.
+transfer at 0.76), **≥0.70 cross-instance transfer of the specialist (leaf) roles** (§9b/§9b′ — the
+full 6-way lands at **PARTIAL ~0.60 and stays there when de-confounded** by a natural re-collection;
+the specialists transfer only partially, with the residual owed to legitimate different-LLM/session
+independence, not — after §9b′ — a driver artefact; the coordinator layer transfers **deployably** at
+§9a/§9b′), a workflow fingerprint on an external (LLM-planned)
+system, **portable** cross-*framework* classifier transfer (§10 — the attack *replicates* on
+AutoGen behaviourally at 0.966, but a model trained on one framework does **not** transfer to the
+other: weaker direction 0.429, BOUNDED — the fingerprint is framework-specific), strong open-set
+rejection of novel workflows/roles, or a detector robust to hard agentic negatives — all future work.
+*(Deployment C remains a runtime-invariance control, not a generalization result; §10 is the actual
+independent-framework data point.)*

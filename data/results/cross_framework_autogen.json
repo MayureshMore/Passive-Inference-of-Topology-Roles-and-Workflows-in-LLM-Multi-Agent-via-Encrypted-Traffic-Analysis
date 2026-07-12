@@ -1,0 +1,148 @@
+{
+  "task": "Task 3 pilot \u2014 does the role-fingerprint attack replicate on AutoGen (independent, non-A2A, networked framework)?",
+  "framework": "autogen-core 0.7.5 distributed gRPC runtime (host + worker/orchestrator gRPC clients); local ollama llama3.2:3b (no API spend).",
+  "why_independent": "Different protocol (gRPC/HTTP2 star-through-host vs a2a Starlette/JSON-RPC/SSE per-agent servers), different serialization, different control flow. A positive here is a genuine cross-FRAMEWORK replication, not a runtime re-skin (cf. deployment C, which reused A's structure).",
+  "representation": "35-dim per-agent traffic-shape vector (features/per_flow.py); role attributed by client source-port via per-trip labels sidecar \u2014 port is a LABEL, never a feature.",
+  "method": "GBT; group-safe 5-fold StratifiedGroupKFold by prompt_group(=topic); macro-F1 + bootstrap 95% CI; seed 42.",
+  "n_samples": 120,
+  "per_role_n": {
+    "orchestrator": 30,
+    "researcher": 30,
+    "reviewer": 30,
+    "writer": 30
+  },
+  "prompt_groups": 25,
+  "role_4way": {
+    "labels": "orchestrator/researcher/writer/reviewer (4-way role)",
+    "n": 120,
+    "n_classes": 4,
+    "classes": [
+      "orchestrator",
+      "researcher",
+      "reviewer",
+      "writer"
+    ],
+    "chance": 0.25,
+    "macro_f1": 0.9660739260739261,
+    "ci_lo": 0.930534276616198,
+    "ci_hi": 0.9918826918041371,
+    "accuracy": 0.9666666666666666,
+    "verdict": "REPLICATES on AutoGen (\u22650.70, CI clear of chance \u2014 attack is framework-portable)"
+  },
+  "role_4way_shape_only": {
+    "labels": "4-way role SHAPE-ONLY (volume-ablated)",
+    "n": 120,
+    "n_classes": 4,
+    "classes": [
+      "orchestrator",
+      "researcher",
+      "reviewer",
+      "writer"
+    ],
+    "chance": 0.25,
+    "macro_f1": 0.9660739260739261,
+    "ci_lo": 0.930534276616198,
+    "ci_hi": 0.9918826918041371,
+    "accuracy": 0.9666666666666666,
+    "verdict": "REPLICATES on AutoGen (\u22650.70, CI clear of chance \u2014 attack is framework-portable)",
+    "features_kept": [
+      "mean_sz_out",
+      "std_sz_out",
+      "p25_sz_out",
+      "p75_sz_out",
+      "mean_sz_in",
+      "std_sz_in",
+      "p25_sz_in",
+      "p75_sz_in",
+      "duration_s",
+      "mean_iat",
+      "std_iat",
+      "mean_burst_dur",
+      "mean_ibg",
+      "bytes_out_ratio",
+      "pkt_size_asymmetry",
+      "iqr_size_in"
+    ],
+    "features_dropped": [
+      "n_pkts_out",
+      "n_pkts_in",
+      "bytes_out",
+      "bytes_in",
+      "n_bursts",
+      "mean_burst_bytes",
+      "std_burst_bytes",
+      "cumul_bytes_q0",
+      "cumul_bytes_q1",
+      "cumul_bytes_q2",
+      "cumul_bytes_q3",
+      "cumul_bytes_q4",
+      "cumul_bytes_q5",
+      "cumul_bytes_q6",
+      "cumul_bytes_q7",
+      "cumul_bytes_q8",
+      "cumul_bytes_q9",
+      "n_small_inbound",
+      "n_response_bursts"
+    ],
+    "note": "Volume ablation (Task-1 mask): drop raw count/byte-magnitude dims, keep shape/timing/ratios. \u22650.70 here \u21d2 the AutoGen fingerprint is behavioural, not just hub-volume."
+  },
+  "coordinator_vs_specialist_2way": {
+    "labels": "coordinator-vs-specialist (2-way, partly structural)",
+    "n": 120,
+    "n_classes": 2,
+    "classes": [
+      "coordinator",
+      "specialist"
+    ],
+    "chance": 0.5,
+    "macro_f1": 1.0,
+    "ci_lo": 1.0,
+    "ci_hi": 1.0,
+    "accuracy": 1.0,
+    "verdict": "REPLICATES on AutoGen (\u22650.70, CI clear of chance \u2014 attack is framework-portable)"
+  },
+  "cross_framework_transfer": {
+    "abstraction": "coordinator-vs-specialist (the only label space shared by both frameworks; partly structural \u2014 hubs carry more traffic than leaves).",
+    "a2a_mcp_to_autogen": {
+      "macro_f1": 0.42857142857142855,
+      "ci_lo": 0.40298507462686567,
+      "ci_hi": 0.4520547945205479,
+      "accuracy": 0.75,
+      "n_test": 120,
+      "chance": 0.5
+    },
+    "autogen_to_a2a_mcp": {
+      "macro_f1": 0.7857616821740862,
+      "ci_lo": 0.7120458605699984,
+      "ci_hi": 0.850626238250945,
+      "accuracy": 0.9421157684630739,
+      "n_test": 501,
+      "chance": 0.5
+    },
+    "weaker_direction_macro_f1": 0.42857142857142855,
+    "asymmetry_note": "Directions are asymmetric: AutoGen\u2192a2a transfers (AutoGen's single clean coordinator generalizes to a2a's hubs), but a2a\u2192AutoGen collapses (a2a's HTTP/JSON-RPC coordinators don't match AutoGen's gRPC orchestrator signature \u2192 predicts all-specialist). Weaker direction is the headline.",
+    "verdict": "BOUNDED \u2014 cross-framework label transfer does NOT hold (weaker direction \u2264 chance); the fingerprint is framework-specific. NB the attack still REPLICATES on AutoGen when retrained (see role_4way) \u2014 this bounds portability, not the vulnerability. Consistent with the paper's implementation-specificity thesis.",
+    "shape_only": {
+      "a2a_mcp_to_autogen": {
+        "macro_f1": 0.42857142857142855,
+        "ci_lo": 0.40298507462686567,
+        "ci_hi": 0.4520547945205479,
+        "accuracy": 0.75,
+        "n_test": 120,
+        "chance": 0.5
+      },
+      "autogen_to_a2a_mcp": {
+        "macro_f1": 0.47318611987381703,
+        "ci_lo": 0.46531483457844186,
+        "ci_hi": 0.4802904564315353,
+        "accuracy": 0.8982035928143712,
+        "n_test": 501,
+        "chance": 0.5
+      },
+      "weaker_direction_macro_f1": 0.42857142857142855,
+      "note": "volume-ablated; if the transfer holds shape-only it is not merely the hub-volume signal."
+    }
+  },
+  "caveats": "Pilot: single deployment topology, one LLM, specialists are researcher/writer/reviewer (AutoGen's own roles \u2014 NOT a2a's air/hotel/car, so a fine 6-way cross-framework label transfer is undefined; the shared abstraction is coordinator-vs-specialist). This measures whether the ATTACK CLASS replicates on AutoGen; a full a2a\u2194AutoGen coarse transfer is the next step.",
+  "verdict_basis": "pre-registered \u00a74 bands; verdict field matches the number (no re-stamp)."
+}

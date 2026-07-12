@@ -42,6 +42,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from evaluation.stats import bootstrap_ci  # noqa: E402
+from features.per_flow import PerFlowFeatures  # noqa: E402
 from models.gradient_boosted import GBTClassifier  # noqa: E402
 from scripts.evaluate_offtheshelf_fingerprint import extract_role_samples, coarse  # noqa: E402
 
@@ -51,6 +52,25 @@ logger = logging.getLogger(__name__)
 MIN_N = int(os.environ.get("MIN_N", "5"))  # a role needs ≥ this many samples in BOTH instances
 # (default 5 reproduces the committed coordinator result; the 6-way run sets MIN_N=10 so a noisy
 #  4-5-sample specialist can never enter — per-class F1 on n=5 is noise, worse than none.)
+
+# ── volume-ablation mask (§9a) ────────────────────────────────────────────────
+# The coordinator "deployable" result could be behavioural (per-agent traffic SHAPE)
+# or could ride on the connection-VOLUME signal already demoted to a topology baseline
+# (a hub carries more bytes/packets than a leaf). To separate the two — exactly parallel
+# to the framework-ID timing ablation (0.46→0.38) — re-run the transfer on a SHAPE-ONLY
+# feature set: drop every raw count / raw-byte-magnitude dimension (whatever scales with
+# how much traffic an agent carries), keep only per-packet size shape, IAT/duration/gap
+# timing, burst-duration shape, and normalized ratios.
+_FEATURE_NAMES = PerFlowFeatures.FEATURE_NAMES()  # 35 names, matches to_vector() order
+_VOLUME_FEATURES = (
+    {"n_pkts_out", "n_pkts_in", "bytes_out", "bytes_in",      # raw packet/byte totals
+     "n_bursts", "mean_burst_bytes", "std_burst_bytes",       # burst count + byte magnitudes
+     "n_small_inbound", "n_response_bursts"}                  # raw event counts
+    | {f"cumul_bytes_q{i}" for i in range(10)}                # cumulative byte trajectory (raw volume)
+)
+_SHAPE_MASK = np.array([n not in _VOLUME_FEATURES for n in _FEATURE_NAMES], dtype=bool)
+_DROPPED_FEATURES = [n for n in _FEATURE_NAMES if n in _VOLUME_FEATURES]
+_KEPT_FEATURES = [n for n in _FEATURE_NAMES if n not in _VOLUME_FEATURES]
 
 
 def counts(y):
@@ -127,6 +147,46 @@ def specialist_distribution_check(X1, y1, X2, y2):
     return out
 
 
+def inst2_specialist_mode(r2, y2, g2):
+    """Classify instance-2's SPECIALIST samples as NATURAL or BOOSTED by reading each sample's
+    per-trip sidecar 'boosted' flag. The distribution check + 6-way band are interpreted
+    CONDITIONALLY on this: boosted → the driver is a candidate confound; natural → the confound is
+    removed, so any residual distribution gap is the legitimate LLM/session independence, and a
+    sub-0.70 is partly LLM-attributable (must be stated, not swept)."""
+    y2 = np.asarray(y2); g2 = np.asarray(g2)
+    n_boost = n_nat = n_unknown = 0
+    drivers = set()
+    for role, trip in zip(y2, g2):
+        if role not in SPECIALISTS:
+            continue
+        sc = Path(r2) / f"{trip}.json"
+        boosted = drv = None
+        if sc.exists():
+            try:
+                d = json.loads(sc.read_text()); boosted = d.get("boosted"); drv = d.get("driver")
+            except Exception:
+                pass
+        if drv:
+            drivers.add(drv)
+        if boosted is True:
+            n_boost += 1
+        elif boosted is False:
+            n_nat += 1
+        else:
+            n_unknown += 1
+    total = n_boost + n_nat + n_unknown
+    if total == 0:
+        mode = "none"
+    elif n_boost > 0:
+        mode = "boosted"          # ANY boosted specialist ⇒ treat the set as driver-affected (safe)
+    elif n_nat > 0:
+        mode = "natural"          # explicit-natural, no boosted present
+    else:
+        mode = "boosted"          # all legacy/unknown ⇒ the committed boosted run (conservative)
+    return {"mode": mode, "n_specialist_samples": int(total), "n_boosted": int(n_boost),
+            "n_natural": int(n_nat), "n_unknown_legacy": int(n_unknown), "drivers": sorted(drivers)}
+
+
 def main(args: argparse.Namespace) -> None:
     r1, r2 = Path(args.inst1), Path(args.inst2)
     if not any(r1.glob("*.pcap")):
@@ -135,7 +195,7 @@ def main(args: argparse.Namespace) -> None:
         raise SystemExit(f"blocked: no instance-2 pcaps at {r2} — run collect_offtheshelf_inst2.sh first")
 
     X1, y1, _ = extract_role_samples(r1)
-    X2, y2, _ = extract_role_samples(r2)
+    X2, y2, g2 = extract_role_samples(r2)
     c1, c2 = counts(y1), counts(y2)
     logger.info("instance-1 roles: %s", c1)
     logger.info("instance-2 roles: %s", c2)
@@ -173,6 +233,47 @@ def main(args: argparse.Namespace) -> None:
             "weaker_direction_macro_f1": cweak, "verdict": band(cweak, cwd["ci_lo"], cwd["chance"]),
         }
 
+    # ── VOLUME ABLATION on the clean coordinator transfer (§9a gate) ──────────────
+    # Same data, same pipeline; only the feature columns change. Drop every raw
+    # count/volume dimension (_VOLUME_FEATURES) and re-run _transfer both directions.
+    # Verdict rule (no re-stamp): shape-only weaker-direction ≥0.70 → the coordinator
+    # attack is BEHAVIOURAL (shape), "DEPLOYABLE" stands with evidence; <0.70 → it is
+    # VOLUME-DRIVEN, reframe §9a as "coordinator structure is readable across instances"
+    # and qualify "deployable". Number reported as-is either way.
+    shape_out = None
+    if coord_out is not None:
+        X1k, y1k2 = restrict(X1, y1, coord_roles); X2k, y2k2 = restrict(X2, y2, coord_roles)
+        X1s, X2s = X1k[:, _SHAPE_MASK], X2k[:, _SHAPE_MASK]
+        sc12 = transfer(X1s, y1k2, X2s, y2k2, f"{len(coord_roles)}-way COORD shape-only inst1→inst2")
+        sc21 = transfer(X2s, y2k2, X1s, y1k2, f"{len(coord_roles)}-way COORD shape-only inst2→inst1")
+        sweak = min(sc12["macro_f1"], sc21["macro_f1"])
+        swd = sc12 if sc12["macro_f1"] <= sc21["macro_f1"] else sc21
+        sverdict = band(sweak, swd["ci_lo"], swd["chance"])
+        behavioural = sweak >= 0.70 and swd["ci_lo"] > swd["chance"]
+        shape_out = {
+            "purpose": "Volume ablation on the §9a coordinator transfer — is DEPLOYABLE behavioural "
+                       "(shape) or the demoted connection-volume signal? Parallel to the framework-ID "
+                       "timing ablation (0.46→0.38).",
+            "roles": coord_roles,
+            "features_kept": _KEPT_FEATURES,
+            "features_dropped": _DROPPED_FEATURES,
+            "n_features_kept": int(_SHAPE_MASK.sum()),
+            "n_features_dropped": int((~_SHAPE_MASK).sum()),
+            "inst1_to_inst2": sc12, "inst2_to_inst1": sc21,
+            "weaker_direction_macro_f1": sweak,
+            "verdict": sverdict,
+            "interpretation": (
+                "SHAPE-ONLY weaker direction ≥0.70 with CI clear of chance: the coordinator transfer "
+                "is BEHAVIOURAL (per-agent traffic shape/timing), not merely the connection-volume "
+                "signal — 'DEPLOYABLE' in §9a stands with ablation evidence."
+                if behavioural else
+                "SHAPE-ONLY weaker direction <0.70 (or CI touches chance): the coordinator transfer "
+                "rides substantially on connection VOLUME (the signal already demoted to a topology "
+                "baseline). Reframe §9a as 'coordinator STRUCTURE is readable across instances' and "
+                "qualify 'deployable' accordingly."),
+        }
+        logger.info("[COORD shape-only] weaker=%.3f -> %s", sweak, sverdict)
+
     # coordinator-vs-specialist 2-way (partly structural) — both directions, if both classes exist.
     coarse_out = None
     y1k = np.array([coarse(r) for r in y1]); y2k = np.array([coarse(r) for r in y2])
@@ -186,36 +287,60 @@ def main(args: argparse.Namespace) -> None:
             "inst1_to_inst2": c_1to2, "inst2_to_inst1": c_2to1,
         }
 
-    # Specialist distribution check (Correction 2): inst-2 specialists were collected with the
-    # fan-out-boosted driver, so compare their per-agent feature distributions to inst-1's natural
-    # specialists — a driver artefact must not masquerade as a positive OR a boundary finding.
+    # ── SPECIALIST DISTRIBUTION CHECK = the GATE for the 6-way band (required addition) ──
+    # Compare inst-2 specialists' per-agent feature distributions to inst-1's (always natural).
+    # The MEANING of the 6-way band is conditional on this, and on HOW inst-2's specialists were
+    # collected (boosted vs natural):
+    #   * boosted  → a driver artefact must not masquerade as a positive OR a boundary finding.
+    #   * natural  → the confound is removed; any residual gap is the legitimate LLM/session
+    #                independence, so a sub-0.70 is PARTLY LLM-attributable, not a clean
+    #                "specialist behaviour does not transfer". Stated, not swept.
     dist_check = specialist_distribution_check(X1, y1, X2, y2)
     specialists_in_way = [r for r in common if r in SPECIALISTS]
     all_comparable = dist_check.get("_summary", {}).get("all_comparable", False)
-    if specialists_in_way and weak >= 0.70:
+    spec_mode = inst2_specialist_mode(r2, y2, g2)
+    mode = spec_mode["mode"]
+
+    if not specialists_in_way:
+        driver_interpretation = ("No specialists met the ≥%d bar — coordinator-layer result; the "
+                                 "specialist-collection axis does not apply." % MIN_N)
+    elif mode == "boosted":
         driver_interpretation = (
-            "6-way ≥0.70 WITH specialists in the transfer. Instance-2's specialists were collected "
-            "with the boosted driver, which if anything makes this a HARDER test (train on inst-1 "
-            "NATURAL specialists, test on inst-2 FORCED ones). "
-            + ("Specialist feature distributions are COMPARABLE across instances (see "
-               "specialist_distribution_check), so the positive is not a driver artefact — it is "
-               "robust." if all_comparable else
-               "BUT specialist distributions are NOT all comparable across instances — the boosted "
-               "driver may be inflating similarity; treat the positive with caution and see "
-               "specialist_distribution_check."))
-    elif specialists_in_way and weak < 0.70:
-        driver_interpretation = (
-            "6-way <0.70 with specialists in the transfer. The boosted driver used for inst-2 "
-            "specialists is a POSSIBLE CONTRIBUTOR to the drop (train-natural / test-forced "
-            "mismatch), NOT necessarily 'behaviour doesn't transfer'. This must be named as a "
-            "candidate confound. "
-            + ("However specialist distributions are comparable across instances, which argues "
-               "against the driver being the whole story." if all_comparable else
-               "Specialist distributions differ across instances, consistent with the driver "
-               "contributing — the structure-vs-behaviour reading is confounded here."))
+            ("6-way ≥0.70 WITH specialists. Instance-2's specialists were collected with the BOOSTED "
+             "driver, which if anything makes this a HARDER test (train inst-1 NATURAL, test inst-2 "
+             "FORCED). " + ("Distributions are COMPARABLE — the positive is robust, not a driver "
+             "artefact." if all_comparable else "BUT distributions are NOT all comparable — the "
+             "boosted driver may inflate similarity; treat with caution."))
+            if weak >= 0.70 else
+            ("6-way <0.70 WITH specialists collected by the BOOSTED driver — a POSSIBLE CONTRIBUTOR "
+             "to the drop (train-natural / test-forced mismatch), NOT necessarily 'behaviour doesn't "
+             "transfer'; named as a candidate confound. " + ("However distributions are comparable, "
+             "arguing against the driver being the whole story." if all_comparable else
+             "Distributions differ, consistent with the driver contributing — confounded here. Run "
+             "the NATURAL collection (scripts/collect_offtheshelf_natural.sh) to de-confound.")))
+    elif mode in ("natural", "mixed"):
+        prefix = ("MIXED natural+boosted specialists — read with the boosted caveat; a fully-natural "
+                  "re-collection is cleaner. " if mode == "mixed"
+                  else "NATURAL specialists — the boosted-driver confound is REMOVED. ")
+        if all_comparable:
+            driver_interpretation = prefix + (
+                "Specialist distributions are COMPARABLE to instance-1 (specialist_distribution_check) "
+                "⇒ the confound is gone and the pre-registered §4 band means what it says: "
+                + ("≥0.70 → CLEAN full-6-way cross-instance transfer including specialists."
+                   if weak >= 0.70 else
+                   "<0.70 → a GENUINE partial/bounded specialist transfer (real instance drift), not "
+                   "a driver artefact."))
+        else:
+            driver_interpretation = prefix + (
+                "Specialist distributions are NOT all comparable to instance-1. With the boosted "
+                "driver removed, the residual difference is the LEGITIMATE independence axes "
+                "(different LLM gemini-2.0-flash, separate session), NOT a driver artefact: "
+                + ("≥0.70 → transfers despite that independence gap → robust."
+                   if weak >= 0.70 else
+                   "<0.70 → the drop is PARTLY LLM/SESSION-ATTRIBUTABLE, not a clean 'specialist "
+                   "behaviour does not transfer'. This is STATED, not swept."))
     else:
-        driver_interpretation = ("No specialists met the ≥%d bar — this is the coordinator-layer "
-                                 "result; the boosted-driver axis does not apply." % MIN_N)
+        driver_interpretation = "No specialist samples found to classify collection mode."
 
     out = {
         "task": "cross-INSTANCE role transfer on a2a_mcp (Phase 2 — deployable-attack test)",
@@ -226,13 +351,17 @@ def main(args: argparse.Namespace) -> None:
             "different_llm": "gemini-2.0-flash (instance 1 = gemini-2.5-flash), via LITELLM_MODEL",
             "different_prompts": "reworded query template, different dates/party-size/class/nights",
             "separate_session": True,
-            "different_driver_for_specialists": "instance-2's specialist samples were topped up with "
-                "the fan-out-BOOSTED driver (drive_orch_boost.py) + fully-specified queries, because "
-                "a2a_mcp's natural fan-out to air/hotel/car is only ~6-11% of trips. This is an ADDED "
-                "axis of difference (cuts both ways — see driver_confound_interpretation and "
-                "specialist_distribution_check); the coordinator samples remain natural.",
+            "specialist_collection": ("BOOSTED (drive_orch_boost.py + forced full-service prompt) — a "
+                "driver confound; see driver_confound_interpretation + specialist_distribution_check."
+                if mode == "boosted" else
+                "NATURAL (drive_orch_natural_fixed.py: bug-fixed-but-not-forced, instance-2's own "
+                "reworded prompt) — the driver confound is REMOVED; residual gap = legitimate LLM/"
+                "session independence. See specialist_distribution_check (the band's gate)."
+                if mode == "natural" else
+                "MIXED natural+boosted specialist samples — interpret with caution."),
             "shared": "the a2a_mcp framework's fixed six roles by port (10100-10105)",
         },
+        "specialist_collection_mode": spec_mode,
         "representation": "35-dim per-agent traffic-shape vector (features/per_flow.py); port is "
                           "the LABEL only, never a feature.",
         "method": "fit GBT on train instance, predict test instance (_transfer pattern); macro-F1 "
@@ -248,14 +377,18 @@ def main(args: argparse.Namespace) -> None:
             "weaker_direction_macro_f1": weak,
         },
         "coordinator_layer_3way_clean": coord_out,
+        "coordinator_shape_only_ablation": shape_out,
         "coordinator_vs_specialist": coarse_out,
         "specialist_distribution_check": dist_check,
         "driver_confound_interpretation": driver_interpretation,
         "verdict_phase2": verdict,
-        "verdict_basis": "weaker of the two directions (brief §4); verdict field matches the number.",
-        "caveats": "Single second instance. Specialist samples (air/hotel/car) in instance-2 were "
-                   "collected with the boosted driver (see independence_of_instance2 + "
-                   "specialist_distribution_check); coordinator samples are natural.",
+        "verdict_basis": "weaker of the two directions (brief §4); verdict field matches the number. "
+                         "For the 6-way the band's MEANING is gated on specialist_distribution_check + "
+                         "specialist_collection_mode (boosted → driver confound; natural → residual gap "
+                         "is legitimate LLM/session independence).",
+        "caveats": ("Single second instance. Instance-2 specialists collected via " + mode +
+                    " driver (see specialist_collection_mode); coordinator samples are natural in "
+                    "both. The specialist_distribution_check is the gate for reading the 6-way band."),
     }
 
     out_dir = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
@@ -271,7 +404,26 @@ def main(args: argparse.Namespace) -> None:
     print(f"  inst2→inst1  macro-F1 = {f_2to1['macro_f1']:.3f} [{f_2to1['ci_lo']:.3f},{f_2to1['ci_hi']:.3f}]"
           f"  (n_test={f_2to1['n_test']}, chance={f_2to1['chance']:.3f})")
     print(f"  weaker direction = {weak:.3f}")
+    # ── distribution check reported BEFORE the verdict — it gates the band's meaning ──
+    if specialists_in_way:
+        print("  ── specialist distribution GATE (inst-1 vs inst-2 specialists) ──")
+        print(f"     collection mode: {mode.upper()}  "
+              f"(boosted={spec_mode['n_boosted']} natural={spec_mode['n_natural']} "
+              f"legacy={spec_mode['n_unknown_legacy']})")
+        for sp in SPECIALISTS:
+            dc = dist_check.get(sp, {})
+            if "median_abs_smd" in dc:
+                print(f"     {sp:13s} median|SMD|={dc['median_abs_smd']:.2f} cos={dc['mean_vector_cosine']:.3f}"
+                      f"  comparable={dc['comparable']}")
+        print(f"     specialists comparable: {dist_check.get('_summary', {}).get('specialists_comparable')}"
+              f"  -> band is {'CLEAN' if all_comparable else 'CONDITIONAL (see interpretation)'}")
     print(f"  VERDICT (§4): {verdict}")
+    if coord_out:
+        print(f"  coordinator 3-way (natural)      weaker = {coord_out['weaker_direction_macro_f1']:.3f}"
+              f"  -> {coord_out['verdict'].split(' (')[0]}")
+    if shape_out:
+        print(f"  coordinator 3-way SHAPE-ONLY     weaker = {shape_out['weaker_direction_macro_f1']:.3f}"
+              f"  ({shape_out['n_features_kept']}/35 feats)  -> {shape_out['verdict'].split(' (')[0]}")
     print("=" * 74)
     print(f"\nWrote {out_dir / 'cross_instance_transfer.json'}")
 
