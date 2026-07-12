@@ -192,8 +192,9 @@ concurrent-vs-sequential artifact**. **The §5.4-vs-§7 gap is therefore detecto
 vs. supervised), not a contradiction.** Honest limit: **every negative is non-agentic
 (multi-flow but non-SSE)**, and the detector keys on A2A's SSE-streaming + orchestrator
 fan-out signature — so this measures **"A2A vs non-agentic traffic," not "A2A vs other agent
-frameworks."** Separability from other **agentic, SSE-based** frameworks (AutoGen, CrewAI, …)
-is **untested**.
+frameworks."** Separability from another **independent agentic framework** is now tested in
+**§11** (A2A vs AutoGen, AUC 1.0 — but transport-driven; a same-transport SSE framework like
+CrewAI remains future work), and the loss-of-port-isolation concern is quantified in **§12**.
 
 ---
 
@@ -519,6 +520,50 @@ and a second LLM are the natural robustness extensions.*
 
 ---
 
+## 11. Agentic-vs-agentic detection — A2A vs AutoGen (closes the §7 "open problem")
+
+The referee's sharpest deployability point: the AUC 1.0 detector (§7) separates A2A only from
+**non-agentic** negatives, so "detect an A2A system in the wild" was open. With real AutoGen traffic
+we run the honest binary detector — **A2A flows (positive) vs AutoGen flows (negative)**, same 35-dim
+per-flow shape vector, **GBT**, group-safe 5-fold StratifiedGroupKFold by trip, percentile bootstrap
+95% CI, shape-only ablation. n = 501 A2A flows (150 trips) vs 120 AutoGen flows (25 trips).
+`data/results/agentic_detection.json` (+ `figures/agentic_detection.png`).
+
+**AUROC 1.000 [1.000, 1.000], macro-F1 1.000 — STRONG**, and it **survives the shape-only ablation
+(AUROC 1.000)** — not merely raw connection volume. **Honest scoping (load-bearing):** the sanity check
+shows the separation is driven by **transport-level packet-size percentiles** (`p25/p75` out-sizes,
+near-constant per framework — gRPC/HTTP2 framing vs HTTP/SSE framing; `top_discriminating_features`).
+So this **converts detection from "open problem / only vs non-agentic negatives" to "A2A is
+distinguishable from an INDEPENDENT agentic framework"** — real and useful — but it is substantially a
+**transport fingerprint**, so it does **not** show A2A is separable from a **same-transport**
+agentic framework (another SSE-over-HTTP system such as CrewAI). That hardest case remains future work.
+Reported as-is.
+
+## 12. Background-multiplexing degradation — the cost of losing port isolation
+
+The detection/role results assume the observer isolates each agent's flows by port. Real deployments
+multiplex. We embed A2A flows amid genuine background flows (web/file/REST/JSON-RPC/multi-REST/LLM-direct)
+and measure degradation vs the contamination ratio **ρ = background flows per agent flow** (ρ=0 clean,
+ρ→∞ background-dominated window). GBT, group-safe CV, percentile bootstrap CI.
+`data/results/mixing_degradation.json` (+ `figures/mixing_degradation.png`).
+
+- **Detection:** per-flow A2A-vs-background AUROC 1.000 (shape-only 1.000), recall 1.000 at a **fixed 5%
+  background-FPR operating point**. Recall is threshold-fixed, but **precision falls predictably with ρ**
+  as un-isolated background flows accumulate false positives at that 5% rate: **1.00 (ρ=0) → 0.83 (ρ=4)
+  → 0.71 (ρ=8) → 0.38 (ρ=32)**. That is the honest, quantified cost of multiplexing.
+- **Role recovery:** with an explicit **background reject class**, role macro-F1 **0.957 [0.909, 0.989]**
+  and background→role **leak 0.00** — role attribution is **robust to this contamination**. *Honest caveat:*
+  the background is **non-agentic and structurally distinct**, so it is trivially rejected; **agentic**
+  distractors (cf. §11) would be a sterner test and likely leak more.
+
+**Honest scope (threat-model, not experiment):** this is a first-order flow-level proxy — an observer
+who can still **segment** flows but not **attribute** them. It does **not** address the deepest case —
+agents behind a **shared reverse proxy on :443 with no distinct observable ports**, where flows aren't
+even separable. That is **architectural** and is handled by the paper's threat-model framing, not by
+this experiment.
+
+---
+
 ## Bottom line
 
 A passive observer, seeing only encrypted-traffic metadata, recovers **workflow** (GBT
@@ -542,8 +587,11 @@ transfer including the sparse specialists is **partial (~0.60)**; a **de-confoun
 essentially unchanged (0.605→**0.594**), so the driver was not masking a positive — the specialist
 transfer is **genuinely PARTIAL, with the residual gap owed to the legitimate different-LLM/session
 independence, not a driver artefact**. A2A-vs-background *detection* separates
-a2a_mcp at AUC 1.000, but **only against non-agentic negatives** — so real-world detectability
-(vs. other agentic SSE frameworks) remains an **open problem**, not a claim. A **same-session
+a2a_mcp at AUC 1.000 against non-agentic negatives; **§11 extends this to an independent agentic
+framework** (A2A vs AutoGen, AUC 1.0 — though transport-driven, so a same-transport SSE framework
+stays future work), and **§12 quantifies the loss-of-port-isolation cost** (detection precision
+1.00→0.38 as background rises to 32:1 at a 5% FPR operating point; role recovery robust to non-agentic
+contamination given a reject stage). The deepest no-observable-ports case is threat-model framing, not a claim. A **same-session
 interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
 implementation fingerprint **collapses from 0.997 to chance (0.49)** once the capture-session
 confound is removed — so within-family framework/implementation ID is a batch artefact, honestly

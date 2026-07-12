@@ -1,0 +1,119 @@
+{
+  "task": "agentic-vs-agentic detection \u2014 A2A vs AutoGen (Exp 1)",
+  "positive_class": {
+    "label": "A2A",
+    "desc": "A2A flows (a2a_mcp; Starlette/JSON-RPC/SSE over HTTP)",
+    "n_flows": 501,
+    "n_trips": 150
+  },
+  "negative_class": {
+    "label": "AutoGen",
+    "desc": "AutoGen flows (autogen-core distributed gRPC; local ollama)",
+    "n_flows": 120,
+    "n_trips": 25
+  },
+  "representation": "35-dim per-flow traffic-shape vector (features/per_flow.py); port NEVER a feature.",
+  "method": "GBT (HistGradientBoosting); group-safe 5-fold StratifiedGroupKFold by trip; leakage-free OOF; AUROC + macro-F1 with percentile bootstrap 95% CI (2000 resamples); seed 42.",
+  "full_features": {
+    "auroc": 1.0,
+    "auroc_ci95": [
+      1.0,
+      1.0
+    ],
+    "macro_f1": 1.0,
+    "macro_f1_ci95": [
+      1.0,
+      1.0
+    ]
+  },
+  "shape_only_ablation": {
+    "auroc": 1.0,
+    "auroc_ci95": [
+      1.0,
+      1.0
+    ],
+    "macro_f1": 1.0,
+    "macro_f1_ci95": [
+      1.0,
+      1.0
+    ],
+    "n_features": 16,
+    "features_kept": [
+      "mean_sz_out",
+      "std_sz_out",
+      "p25_sz_out",
+      "p75_sz_out",
+      "mean_sz_in",
+      "std_sz_in",
+      "p25_sz_in",
+      "p75_sz_in",
+      "duration_s",
+      "mean_iat",
+      "std_iat",
+      "mean_burst_dur",
+      "mean_ibg",
+      "bytes_out_ratio",
+      "pkt_size_asymmetry",
+      "iqr_size_in"
+    ],
+    "features_dropped": [
+      "n_pkts_out",
+      "n_pkts_in",
+      "bytes_out",
+      "bytes_in",
+      "n_bursts",
+      "mean_burst_bytes",
+      "std_burst_bytes",
+      "cumul_bytes_q0",
+      "cumul_bytes_q1",
+      "cumul_bytes_q2",
+      "cumul_bytes_q3",
+      "cumul_bytes_q4",
+      "cumul_bytes_q5",
+      "cumul_bytes_q6",
+      "cumul_bytes_q7",
+      "cumul_bytes_q8",
+      "cumul_bytes_q9",
+      "n_small_inbound",
+      "n_response_bursts"
+    ]
+  },
+  "top_discriminating_features": [
+    {
+      "feature": "p75_sz_out",
+      "single_feature_auroc": 1.0,
+      "is_shape_feature": true
+    },
+    {
+      "feature": "p25_sz_out",
+      "single_feature_auroc": 1.0,
+      "is_shape_feature": true
+    },
+    {
+      "feature": "p25_sz_in",
+      "single_feature_auroc": 1.0,
+      "is_shape_feature": true
+    },
+    {
+      "feature": "cumul_bytes_q2",
+      "single_feature_auroc": 0.999,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "cumul_bytes_q3",
+      "single_feature_auroc": 0.999,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "bytes_out",
+      "single_feature_auroc": 0.996,
+      "is_shape_feature": false
+    }
+  ],
+  "verdict": "STRONG (A2A separable from an independent agentic framework; \u22650.90, CI clear of chance)",
+  "shape_only_verdict": "STRONG (A2A separable from an independent agentic framework; \u22650.90, CI clear of chance)",
+  "interpretation": "A2A is separable from an independent agentic framework (AutoGen) at the flow level and the separation SURVIVES the shape-only ablation, so it is not purely raw connection volume. BUT the driving features are TRANSPORT-LEVEL packet-size percentiles (near-constant per framework: gRPC/HTTP2 framing vs HTTP/SSE framing \u2014 see top_discriminating_features), so 'survives shape-only' means the signal lives in shape features that are themselves transport-linked.",
+  "honest_scoping": "AutoGen uses a DIFFERENT TRANSPORT (gRPC/HTTP2) than A2A (SSE-over-HTTP), and the separation is largely a TRANSPORT fingerprint. This converts detection from 'only vs non-agentic negatives' to 'A2A distinguishable from an INDEPENDENT agentic framework' \u2014 real \u2014 but does NOT show separability from a SAME-TRANSPORT agentic framework (another SSE-over-HTTP system, e.g. CrewAI), the hardest untested case. Single AutoGen topology/LLM. Reported as-is.",
+  "verdict_basis": "pre-registered AUROC bands; verdict field matches the number (no re-stamp).",
+  "figure": "data/results/figures/agentic_detection.png"
+}

@@ -1,0 +1,108 @@
+{
+  "task": "mixing/multiplexing degradation \u2014 detection & role recovery vs loss of per-port isolation (\u03c1 = background flows per agent flow) (Exp 2)",
+  "gated_on": "Exp 1 agentic_detection AUROC \u2265 ~0.80",
+  "representation": "35-dim per-flow traffic-shape vector; A2A agent flows (a2a_mcp) vs genuine background flows (web/file/REST/JSON-RPC/multi-REST/LLM-direct). Port never a feature.",
+  "method": "GBT; group-safe 5-fold StratifiedGroupKFold by source trace; OOF; percentile bootstrap 95% CI; seed 42. Detection threshold at 5% background FPR.",
+  "n_a2a_flows": 501,
+  "n_background_flows": 250,
+  "detection": {
+    "auroc": 1.0,
+    "auroc_ci95": [
+      1.0,
+      1.0
+    ],
+    "auroc_shape_only": 1.0,
+    "operating_point_bg_fpr": 0.05,
+    "detection_recall_TPR_at_5pct_fpr": 1.0,
+    "precision_recall_vs_rho": [
+      {
+        "rho": 0,
+        "detection_recall": 1.0,
+        "detection_precision": 1.0
+      },
+      {
+        "rho": 1,
+        "detection_recall": 1.0,
+        "detection_precision": 0.9523809523809523
+      },
+      {
+        "rho": 2,
+        "detection_recall": 1.0,
+        "detection_precision": 0.9090909090909091
+      },
+      {
+        "rho": 4,
+        "detection_recall": 1.0,
+        "detection_precision": 0.8333333333333334
+      },
+      {
+        "rho": 8,
+        "detection_recall": 1.0,
+        "detection_precision": 0.7142857142857143
+      },
+      {
+        "rho": 16,
+        "detection_recall": 1.0,
+        "detection_precision": 0.5555555555555556
+      },
+      {
+        "rho": 32,
+        "detection_recall": 1.0,
+        "detection_precision": 0.3846153846153846
+      }
+    ],
+    "note": "operating point fixed at 5% background FPR (project convention); recall read from the ROC curve at that FPR. Precision(\u03c1)=TPR/(TPR+\u03c1\u00b70.05): recall is fixed, precision falls as un-isolated background flows accumulate false positives at the 5% rate."
+  },
+  "role_recovery": {
+    "n_roles": 6,
+    "role_macro_f1_with_reject_class": 0.957037037037037,
+    "role_macro_f1_ci95": [
+      0.9087289020685029,
+      0.9892053756996286
+    ],
+    "background_reject_rate": 1.0,
+    "background_to_role_leak_rate": 0.0,
+    "agent_role_recall_with_background_present": 0.9880239520958084,
+    "precision_vs_rho": [
+      {
+        "rho": 0,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 1,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 2,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 4,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 8,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 16,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      },
+      {
+        "rho": 32,
+        "role_recovery_macro_f1": 0.957037037037037,
+        "role_attribution_precision": 1.0
+      }
+    ]
+  },
+  "interpretation": "DETECTION: recall (TPR) is threshold-fixed at 1.00; PRECISION falls with lost isolation \u2014 1.00 at \u03c1=0 \u2192 0.38 at \u03c1=32 \u2014 the honest cost of multiplexing. ROLE recovery with a reject class is robust here (macro-F1 0.96, background\u2192role leak 0.00) BUT ONLY because the background is NON-AGENTIC and structurally distinct; agentic distractors (cf. Exp 1) would be sterner and likely leak more.",
+  "honest_ceiling": "Measures degradation under multiplexing for an observer who can still SEGMENT flows but not ATTRIBUTE them. It does NOT solve flow isolation behind a SHARED :443 REVERSE PROXY with no distinct observable ports \u2014 that is ARCHITECTURAL and handled by the paper's threat-model scope, not this experiment.",
+  "verdict_basis": "reported as-is; degradation is expected and quantified, not hidden.",
+  "figure": "data/results/figures/mixing_degradation.png"
+}
