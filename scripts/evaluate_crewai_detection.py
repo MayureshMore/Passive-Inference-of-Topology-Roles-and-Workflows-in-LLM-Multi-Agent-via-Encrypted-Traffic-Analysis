@@ -26,13 +26,19 @@ macro-F1 with percentile bootstrap 95% CI (2000 resamples), plus n per class. Al
 (volume-ablated, 16 feat) with the SAME mask as Task 1 / §10 / Exp 1, and the MANDATORY
 single-feature AUROC sanity scan that caught the transport driver in Exp 1.
 
-Pre-registered §4 bands (headline AUROC; chance 0.50; no re-stamp):
-    AUROC >= 0.90 & CI clear of 0.50, survives shape-only  -> CLOSED  (separable on behaviour;
-        because transport is identical by construction, this is NOT a transport artifact)
-    AUROC >= 0.90 & CI clear but shape-only collapses       -> SCOPED  (rides on raw volume,
-        not robust structural/behavioural signal)
-    AUROC < 0.90 or CI touches chance                       -> BOUNDED (A2A not reliably
-        distinguishable from a same-transport agentic framework — an honest privacy bound)
+CORRECTED §4 bands (headline AUROC; chance 0.50; no re-stamp). The original pre-registration only
+excluded *transport-framing* drivers from CLOSED; it did not anticipate that OTHER uncontrolled
+confounds (LLM backend, interaction pattern, agent count) would step into that vacancy. Corrected:
+    AUROC >= 0.90 & CI clear, AND LLM/interaction/topology also held equal -> CLOSED (framework
+        code is the only remaining variable; same-transport framework identity genuinely detectable)
+    AUROC >= 0.90 & CI clear, BUT other variables uncontrolled             -> SCOPED (same-transport
+        SEPARABILITY shown — transport genuinely excluded — but the separation is explicable by the
+        uncontrolled LLM/interaction/topology differences, so framework identity stays open)
+    AUROC < 0.90 or CI touches chance                                       -> BOUNDED (not reliably
+        distinguishable — with all else equal, the STRONGER privacy finding)
+This a2a_mcp-vs-CrewAI run is the SCOPED case (LLM/interaction/agent-count differ; see confounds).
+The matched pair that can reach CLOSED — deployment A vs CrewAI (same transport, LLM, agent count,
+host) — is reported in the RESULTS §13 addendum.
 
 Writes ${A2A_RESULTS_DIR:-data/results}/crewai_detection.json + figures/crewai_detection.png.
 Additive; touches no committed result. Blocked-and-report if either side's pcaps are absent.
@@ -100,18 +106,28 @@ def metrics_with_ci(y, proba, pred):
     return {"auroc": auc, "auroc_ci95": [a_lo, a_hi], "macro_f1": f1, "macro_f1_ci95": [f_lo, f_hi]}
 
 
-def band(full, shape) -> str:
+def band(full, shape, confounded: bool) -> str:
+    """confounded=True when LLM/interaction/topology are NOT held equal (the a2a_mcp positive
+    pair) → cap at SCOPED. confounded=False for the matched pair (deployment A) → CLOSED reachable."""
     auc, ci_lo = full["auroc"], full["auroc_ci95"][0]
-    s_auc, s_lo = shape["auroc"], shape["auroc_ci95"][0]
     if auc >= 0.90 and ci_lo > 0.50:
-        if s_auc >= 0.90 and s_lo > 0.50:
-            return ("CLOSED (A2A separable from a SAME-TRANSPORT agentic framework on "
-                    "structural/behavioural signal; >=0.90, CI clear, survives shape-only; "
-                    "transport identical by construction so NOT a transport artifact)")
-        return ("SCOPED (separable at >=0.90 but the signal collapses under the shape-only "
-                "ablation — it rides on raw connection volume, not robust structure/behaviour)")
-    return ("BOUNDED (A2A not reliably distinguishable from a same-transport agentic framework: "
-            "<0.90 or CI touches chance — an honest privacy-relevant bound)")
+        if confounded:
+            # CORRECTED PRE-REGISTRATION: the original rule only excluded *transport-framing*
+            # drivers from CLOSED and left a vacancy that OTHER uncontrolled confounds step into.
+            # When LLM backend / interaction pattern / agent count are NOT held equal, a >=0.90
+            # separation is SCOPED, not CLOSED — same-transport separability is real (transport is
+            # genuinely excluded), but framework-identity with ALL ELSE EQUAL is not shown.
+            return ("SCOPED (same-transport SEPARABILITY demonstrated — transport + server library "
+                    "held IDENTICAL, so transport is genuinely excluded as the explanation — but the "
+                    "separation is driven by application-layer VOLUME that the UNCONTROLLED "
+                    "LLM-backend / interaction-pattern / agent-count differences move; framework-"
+                    "identity detection with ALL ELSE EQUAL remains OPEN — see confounds)")
+        return ("CLOSED (A2A separable from a SAME-TRANSPORT agentic framework with LLM, agent count, "
+                "host and transport all held equal — >=0.90, CI clear; framework orchestration code is "
+                "the only remaining variable, so the same-transport detection question is genuinely closed)")
+    return ("BOUNDED (not reliably distinguishable: <0.90 or CI touches chance — an honest "
+            "privacy-relevant bound; with all else equal this is the STRONGER finding — agentic "
+            "frameworks are indistinguishable on identical transport)")
 
 
 def make_figure(full, shape, n_pos, n_neg, out_png):
@@ -145,9 +161,11 @@ _TRANSPORT_PARITY = {
                        "CrewAI 1.15.2 Agent/Task/Crew brain inside each specialist (local ollama)",
     "on_wire_markers_observed": ["POST /", "HTTP/1.1 200", "content-type: text/event-stream",
                                  "jsonrpc", "message/stream", '"kind":"task"'],
-    "conclusion": "SSE-over-HTTP JSON-RPC on BOTH sides — transport + server library HELD IDENTICAL; "
-                  "the only variable is the agent framework. Separation (if any) is behavioural, "
-                  "not a transport artifact.",
+    "conclusion": "SSE-over-HTTP JSON-RPC on BOTH sides — transport + server library are HELD "
+                  "IDENTICAL, so transport is genuinely EXCLUDED as an explanation for any separation. "
+                  "It is NOT the only variable, however: the LLM backend, interaction pattern and "
+                  "agent count differ between these two deployments (see confounds). Separation is "
+                  "therefore not a transport artifact, but neither is it a clean framework-code signal.",
 }
 
 
@@ -187,7 +205,9 @@ def main(args: argparse.Namespace) -> None:
                       names[i], bool(_SHAPE_MASK[i])) for i in range(X.shape[1])), reverse=True)
     top = [{"feature": n, "single_feature_auroc": round(a, 3), "is_shape_feature": s} for a, n, s in ranked[:6]]
 
-    verdict = band(full, shape)
+    # a2a_mcp positive vs CrewAI negative are NOT matched on LLM/interaction/agent-count →
+    # confounded=True caps the verdict at SCOPED (see confounds + band() docstring).
+    verdict = band(full, shape, confounded=True)
     survives = shape["auroc"] >= 0.90 and shape["auroc_ci95"][0] > 0.50
     out_dir = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
     (out_dir / "figures").mkdir(parents=True, exist_ok=True)
@@ -236,22 +256,28 @@ def main(args: argparse.Namespace) -> None:
                            "NOT as 'framework identity is recoverable with all else held equal'.",
         },
         "verdict": verdict,
-        "verdict_basis": "pre-registered §4 AUROC bands; verdict field matches the number (no re-stamp). "
-                         "CLOSED here means the DETECTION question (same-transport separability) is answered "
-                         "in the affirmative; see confounds for what it does and does not isolate.",
+        "verdict_basis": "CORRECTED pre-registered §4 bands (the original rule only excluded "
+                         "transport-framing drivers from CLOSED, leaving a vacancy other confounds fill; "
+                         "with LLM/interaction/agent-count uncontrolled the ceiling is SCOPED). Verdict "
+                         "matches the number and the confounds — no re-stamp. SCOPED means same-transport "
+                         "SEPARABILITY is demonstrated (transport genuinely excluded); framework-identity "
+                         "with all else equal is NOT shown and remains open (see the matched-pair addendum).",
         "interpretation": (
             "A2A and CrewAI run over an IDENTICAL transport (a2a-sdk 0.3.26 JSON-RPC+SSE, confirmed on "
             "the wire — see transport_parity), so — unlike Exp 1 vs AutoGen — the separation CANNOT be a "
-            "transport-family artifact; Exp 1's SCOPED outcome is excluded by construction. "
-            + ("The detector separates them at AUROC 1.0 and the separation SURVIVES the shape-only "
-               "ablation, so it is not merely raw connection volume. BUT the single-feature scan shows "
-               "the drivers are application-layer VOLUME/burst-count features, and those are precisely "
-               "what the LLM-backend (gemini vs ollama), interaction-pattern (multi-turn vs single-turn) "
-               "and topology (6 vs 4 agents) confounds move. So this ANSWERS the same-transport DETECTION "
-               "question in the affirmative — an observer who cannot use transport can still separate "
-               "these agentic systems from application-layer traffic shape — but it does NOT isolate "
-               "framework code from those confounds (see confounds)."
-               if (full["auroc"] >= 0.90 and full["auroc_ci95"][0] > 0.50 and survives) else
+            "transport-family artifact; Exp 1's transport-driven SCOPED reason is excluded by construction. "
+            + ("The detector separates them at AUROC 1.0 and survives the shape-only ablation, so it is "
+               "not merely raw connection volume. BUT the single-feature scan shows the drivers are "
+               "application-layer VOLUME/burst-count features, and those are precisely what the "
+               "UNCONTROLLED confounds move — LLM backend (cloud gemini vs local ollama, the dominant "
+               "one), interaction pattern (multi-turn vs single-turn) and agent count (6 vs 4). The "
+               "AUROC 1.0 is therefore fully explicable WITHOUT any framework-code signal, so the verdict "
+               "is SCOPED, not CLOSED: same-transport SEPARABILITY is demonstrated (an observer who "
+               "cannot use transport can still separate these systems from application-layer traffic "
+               "shape), but framework-identity detection with all else equal is NOT shown. The matched "
+               "pair (deployment A vs CrewAI — same transport, LLM, agent count, host) is the experiment "
+               "that can actually reach CLOSED; see the RESULTS §13 addendum."
+               if (full["auroc"] >= 0.90 and full["auroc_ci95"][0] > 0.50) else
                "The separation is weak or not robust under ablation — reported honestly per the band.")),
         "honest_scoping": "Single CrewAI topology (planner coordinator + air/hotel/car specialists), single "
                           "LLM (ollama/llama3.2:3b), travel domain matched to the A2A positives. CrewAI has "

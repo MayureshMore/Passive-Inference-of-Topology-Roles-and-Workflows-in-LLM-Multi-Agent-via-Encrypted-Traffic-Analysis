@@ -610,6 +610,29 @@ def fig_crewai_detection() -> Path | None:
     p = FIGS / "crewai_detection.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
 
 
+def fig_crewai_matched_detection() -> Path | None:
+    """§13.1 — deployment A vs CrewAI, ALL ELSE EQUAL (matched pair): AUROC + macro-F1, full vs shape-only."""
+    d = _load(RESULTS / "crewai_matched_detection.json")
+    if not d or "full_features" not in d:
+        return None
+    full = d["full_features"]; shape = d["shape_only_ablation"]
+    npos = d["positive_class"]["n_flows"]; nneg = d["negative_class"]["n_flows"]
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    xs = np.arange(2); w = 0.36
+    for j, (res, lab, col) in enumerate([(full, "full (35 feat)", "#2b6cb0"),
+                                         (shape, "shape-only (16)", "#dd6b20")]):
+        vals = [res["auroc"], res["macro_f1"]]
+        los = [vals[0] - res["auroc_ci95"][0], vals[1] - res["macro_f1_ci95"][0]]
+        his = [res["auroc_ci95"][1] - vals[0], res["macro_f1_ci95"][1] - vals[1]]
+        ax.bar(xs + (j - 0.5) * w, vals, w, yerr=[los, his], capsize=4, label=lab, color=col)
+    ax.axhline(0.5, ls="--", color="gray", lw=1, label="chance (0.50)")
+    ax.set_xticks(xs); ax.set_xticklabels(["AUROC", "macro-F1"]); ax.set_ylim(0, 1.05)
+    ax.set_title(f"Deployment A vs CrewAI — ALL ELSE EQUAL (n={npos}/{nneg} flows)\n"
+                 "same transport/LLM/agents/host/domain/roles/chain; only framework differs (§13.1)")
+    ax.legend(loc="lower right", fontsize=8); fig.tight_layout()
+    p = FIGS / "crewai_matched_detection.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
+
+
 def main() -> None:
     figs = {
         "Confusion — workflow (GBT)": fig_confusion("workflow", "gbt"),
@@ -627,6 +650,7 @@ def main() -> None:
         "Agentic detection A2A-vs-AutoGen (§11)": fig_agentic_detection(),
         "Mixing/multiplexing degradation (§12)": fig_mixing_degradation(),
         "Same-transport detection A2A-vs-CrewAI (§13)": fig_crewai_detection(),
+        "Matched-pair A-vs-CrewAI, all else equal (§13.1)": fig_crewai_matched_detection(),
     }
     md = write_markdown(figs)
     print("Wrote:")

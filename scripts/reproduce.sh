@@ -187,6 +187,9 @@ else
     stage "same-transport detection A2A-vs-CrewAI (Exp 3 / §13; reads a2a_mcp + CrewAI-over-a2a-sdk pcaps — external deployment ~/crewai-xframework)"
     if have "data/raw_offtheshelf" "$HOME/crewai-xframework/data/raw"; then
         run $PY scripts/evaluate_crewai_detection.py; fi
+    stage "matched-pair detection A-vs-CrewAI, ALL ELSE EQUAL (§13.1; reads deployment-A pcaps + matched CrewAI on A's roles/prompts — ~/crewai-xframework/data/raw_matched)"
+    if have "data/raw" "$HOME/crewai-xframework/data/raw_matched"; then
+        run $PY scripts/evaluate_crewai_matched_detection.py; fi
     stage "paper artifacts"
     run $PY scripts/make_paper_artifacts.py
 fi
