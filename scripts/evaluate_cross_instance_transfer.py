@@ -393,7 +393,8 @@ def main(args: argparse.Namespace) -> None:
 
     out_dir = Path(os.environ.get("A2A_RESULTS_DIR", "data/results"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "cross_instance_transfer.json").write_text(json.dumps(out, indent=2))
+    out_name = os.environ.get("CIT_OUT", "cross_instance_transfer.json")   # natural run overrides
+    (out_dir / out_name).write_text(json.dumps(out, indent=2))
 
     print("\n" + "=" * 74)
     print("  PHASE 2 — CROSS-INSTANCE ROLE TRANSFER (a2a_mcp inst1 ⇄ inst2)")
@@ -425,7 +426,7 @@ def main(args: argparse.Namespace) -> None:
         print(f"  coordinator 3-way SHAPE-ONLY     weaker = {shape_out['weaker_direction_macro_f1']:.3f}"
               f"  ({shape_out['n_features_kept']}/35 feats)  -> {shape_out['verdict'].split(' (')[0]}")
     print("=" * 74)
-    print(f"\nWrote {out_dir / 'cross_instance_transfer.json'}")
+    print(f"\nWrote {out_dir / out_name}")
 
 
 def _parse() -> argparse.Namespace:

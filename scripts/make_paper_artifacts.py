@@ -516,6 +516,100 @@ def write_markdown(figs: dict[str, Path | None]) -> Path:
     return out
 
 
+def fig_cross_framework_autogen() -> Path | None:
+    """§10 — AutoGen: role fingerprint REPLICATES (behavioural), cross-framework transfer BOUNDED."""
+    d = _load(RESULTS / "cross_framework_autogen.json")
+    if not d or "role_4way" not in d:
+        return None
+    r4 = d["role_4way"]; r4s = d["role_4way_shape_only"]; xf = d.get("cross_framework_transfer") or {}
+    labels = ["4-way role\n(full)", "4-way role\nshape-only", "x-framework\ntransfer (weaker)"]
+    vals = [r4["macro_f1"], r4s["macro_f1"], xf.get("weaker_direction_macro_f1", 0.0)]
+    los = [vals[0] - r4["ci_lo"], vals[1] - r4s["ci_lo"], 0]
+    his = [r4["ci_hi"] - vals[0], r4s["ci_hi"] - vals[1], 0]
+    fig, ax = plt.subplots(figsize=(7.5, 4.3))
+    ax.bar(range(3), vals, yerr=[los, his], capsize=4, color=["#2b6cb0", "#2b6cb0", "#dd6b20"])
+    ax.axhline(0.70, ls="--", color="green", lw=1, label="deployable 0.70")
+    ax.axhline(0.25, ls=":", color="gray", lw=1, label="chance (4-way 0.25)")
+    ax.set_xticks(range(3)); ax.set_xticklabels(labels); ax.set_ylim(0, 1.05); ax.set_ylabel("macro-F1")
+    ax.set_title("AutoGen (§10): attack REPLICATES (behavioural, survives shape-only)\n"
+                 "but cross-framework classifier transfer is BOUNDED")
+    ax.legend(fontsize=8); fig.tight_layout()
+    p = FIGS / "cross_framework_autogen.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
+
+
+def fig_agentic_detection() -> Path | None:
+    """§11 — A2A vs AutoGen agentic detection (GBT): AUROC + macro-F1, full vs shape-only."""
+    d = _load(RESULTS / "agentic_detection.json")
+    if not d or "full_features" not in d:
+        return None
+    full = d["full_features"]; shape = d["shape_only_ablation"]
+    npos = d["positive_class"]["n_flows"]; nneg = d["negative_class"]["n_flows"]
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    xs = np.arange(2); w = 0.36
+    for j, (res, lab, col) in enumerate([(full, "full (35 feat)", "#2b6cb0"),
+                                         (shape, "shape-only (16)", "#dd6b20")]):
+        vals = [res["auroc"], res["macro_f1"]]
+        los = [vals[0] - res["auroc_ci95"][0], vals[1] - res["macro_f1_ci95"][0]]
+        his = [res["auroc_ci95"][1] - vals[0], res["macro_f1_ci95"][1] - vals[1]]
+        ax.bar(xs + (j - 0.5) * w, vals, w, yerr=[los, his], capsize=4, label=lab, color=col)
+    ax.axhline(0.5, ls="--", color="gray", lw=1, label="chance (0.50)")
+    ax.set_xticks(xs); ax.set_xticklabels(["AUROC", "macro-F1"]); ax.set_ylim(0, 1.05)
+    ax.set_title(f"A2A vs AutoGen agentic detection (n={npos}/{nneg} flows)\n"
+                 "survives shape-only, but transport-driven (§11)")
+    ax.legend(loc="lower right", fontsize=8); fig.tight_layout()
+    p = FIGS / "agentic_detection.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
+
+
+def fig_mixing_degradation() -> Path | None:
+    """§12 — multiplexing degradation: detection precision & role attribution vs ρ (lost isolation)."""
+    d = _load(RESULTS / "mixing_degradation.json")
+    if not d or "detection" not in d:
+        return None
+    det = d["detection"]; role = d["role_recovery"]
+    rhos = [p["rho"] for p in det["precision_recall_vs_rho"]]
+    dp = [p["detection_precision"] for p in det["precision_recall_vs_rho"]]
+    dr = [p["detection_recall"] for p in det["precision_recall_vs_rho"]]
+    rp = [p["role_attribution_precision"] for p in role["precision_vs_rho"]]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    a1.plot(rhos, dp, "o-", color="#2b6cb0", label="detection precision")
+    a1.plot(rhos, dr, "s--", color="#38a169", label="detection recall (TPR)")
+    a1.set_title(f"Detection vs lost isolation\n(AUROC {det['auroc']:.2f}, 5% bg-FPR)")
+    a2.plot(rhos, rp, "o-", color="#dd6b20",
+            label=f"role attribution precision (leak {role['background_to_role_leak_rate']:.2f})")
+    a2.axhline(role["role_macro_f1_with_reject_class"], ls=":", color="gray",
+               label=f"role macro-F1 +reject ({role['role_macro_f1_with_reject_class']:.2f})")
+    a2.set_title("Role recovery vs lost isolation\n(non-agentic bg — trivially rejected)")
+    for a in (a1, a2):
+        a.set_xlabel("ρ = background flows per agent flow"); a.set_ylabel("score")
+        a.set_ylim(0, 1.05); a.legend(loc="lower left", fontsize=8)
+    fig.suptitle("Multiplexing degradation (§12) — does NOT solve shared-:443 no-ports case", fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    p = FIGS / "mixing_degradation.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
+
+
+def fig_crewai_detection() -> Path | None:
+    """§13 — A2A vs CrewAI SAME-transport detection (GBT): AUROC + macro-F1, full vs shape-only."""
+    d = _load(RESULTS / "crewai_detection.json")
+    if not d or "full_features" not in d:
+        return None
+    full = d["full_features"]; shape = d["shape_only_ablation"]
+    npos = d["positive_class"]["n_flows"]; nneg = d["negative_class"]["n_flows"]
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    xs = np.arange(2); w = 0.36
+    for j, (res, lab, col) in enumerate([(full, "full (35 feat)", "#2b6cb0"),
+                                         (shape, "shape-only (16)", "#dd6b20")]):
+        vals = [res["auroc"], res["macro_f1"]]
+        los = [vals[0] - res["auroc_ci95"][0], vals[1] - res["macro_f1_ci95"][0]]
+        his = [res["auroc_ci95"][1] - vals[0], res["macro_f1_ci95"][1] - vals[1]]
+        ax.bar(xs + (j - 0.5) * w, vals, w, yerr=[los, his], capsize=4, label=lab, color=col)
+    ax.axhline(0.5, ls="--", color="gray", lw=1, label="chance (0.50)")
+    ax.set_xticks(xs); ax.set_xticklabels(["AUROC", "macro-F1"]); ax.set_ylim(0, 1.05)
+    ax.set_title(f"A2A vs CrewAI — SAME-transport detection (n={npos}/{nneg} flows)\n"
+                 "identical a2a-sdk 0.3.26 JSON-RPC+SSE both sides (§13)")
+    ax.legend(loc="lower right", fontsize=8); fig.tight_layout()
+    p = FIGS / "crewai_detection.png"; fig.savefig(p, dpi=150); plt.close(fig); return p
+
+
 def main() -> None:
     figs = {
         "Confusion — workflow (GBT)": fig_confusion("workflow", "gbt"),
@@ -529,6 +623,10 @@ def main() -> None:
         "Framework-ID confound control (Phase 1)": fig_framework_id_control(),
         "Confound audit — core claims survive": fig_confound_control(),
         "Cross-instance role transfer (Phase 2)": fig_cross_instance_transfer(),
+        "Cross-framework replication on AutoGen (§10)": fig_cross_framework_autogen(),
+        "Agentic detection A2A-vs-AutoGen (§11)": fig_agentic_detection(),
+        "Mixing/multiplexing degradation (§12)": fig_mixing_degradation(),
+        "Same-transport detection A2A-vs-CrewAI (§13)": fig_crewai_detection(),
     }
     md = write_markdown(figs)
     print("Wrote:")

@@ -535,9 +535,9 @@ shows the separation is driven by **transport-level packet-size percentiles** (`
 near-constant per framework — gRPC/HTTP2 framing vs HTTP/SSE framing; `top_discriminating_features`).
 So this **converts detection from "open problem / only vs non-agentic negatives" to "A2A is
 distinguishable from an INDEPENDENT agentic framework"** — real and useful — but it is substantially a
-**transport fingerprint**, so it does **not** show A2A is separable from a **same-transport**
-agentic framework (another SSE-over-HTTP system such as CrewAI). That hardest case remains future work.
-Reported as-is.
+**transport fingerprint**, so it does **not** by itself show A2A is separable from a **same-transport**
+agentic framework (another SSE-over-HTTP system such as CrewAI). **§13 removes that transport confound**
+(A2A vs CrewAI over an identical a2a-sdk JSON-RPC+SSE transport). Reported as-is.
 
 ## 12. Background-multiplexing degradation — the cost of losing port isolation
 
@@ -561,6 +561,39 @@ who can still **segment** flows but not **attribute** them. It does **not** addr
 agents behind a **shared reverse proxy on :443 with no distinct observable ports**, where flows aren't
 even separable. That is **architectural** and is handled by the paper's threat-model framing, not by
 this experiment.
+
+## 13. Same-transport agentic detection — A2A vs **CrewAI** (removes §11's transport confound)
+
+§11 separated A2A from AutoGen at AUROC 1.0, but the sanity scan showed the driver was a **transport**
+tell (SSE-over-HTTP vs gRPC/HTTP2), so the harder question — can an observer distinguish A2A from
+another agentic framework on the **same** transport — stayed open. CrewAI answers it. CrewAI's *own*
+native remote-agent transport **is the A2A protocol** (`crewai.a2a`: JSON-RPC 2.0 + SSE over HTTP), so
+we serve CrewAI specialists (planner + air/hotel/car, travel domain matched to the positives) on the
+**a2a-sdk stack pinned to 0.3.26 — the identical server library *and version* the a2a_mcp positives
+use** — each wrapping a genuine CrewAI `Agent/Task/Crew` brain (local ollama). **On-wire capture
+confirms identical transport on both sides** (`POST /`, `HTTP/1.1 200`, `content-type: text/event-stream`,
+`jsonrpc` / `message/stream`, `"kind":"task"`). Same 35-dim per-flow vector, **same extractor for both
+sides**, GBT, group-safe 5-fold StratifiedGroupKFold by trip, percentile bootstrap 95% CI, shape-only
+ablation, mandatory single-feature sanity scan. n = 501 A2A flows (150 trips) vs **120 CrewAI flows
+(30 trips)**. `data/results/crewai_detection.json` (+ `figures/crewai_detection.png`).
+
+**AUROC 1.000 [1.000, 1.000], macro-F1 1.000 — and it survives the shape-only ablation (AUROC 1.000,
+macro-F1 0.992). Verdict CLOSED** per the pre-registered §4 band: with transport **provably held
+identical**, the separation is **not** a transport artifact (§11's SCOPED outcome is excluded by
+construction) — an observer who cannot lean on transport can still separate these agentic systems from
+application-layer traffic shape.
+
+**Honest scope (load-bearing — what CLOSED does and does not mean).** The mandatory sanity scan shows
+**all top drivers are application-layer VOLUME/burst-count features** (`n_small_inbound` 0.991,
+`n_response_bursts` 0.987, `n_bursts`, `n_pkts_out/in`). Those are exactly what the **uncontrolled
+confounds** move: the positives use **cloud gemini-2.5-flash** while CrewAI uses **local ollama/llama3.2:3b**
+(different response sizes/chunking — the dominant confound, and not cheaply removable since the a2a_mcp
+positive set is frozen canonical); a2a_mcp's orchestrator runs **multi-turn** clarifying Q&A vs CrewAI's
+**single-turn** calls; and the topologies differ (6-agent vs 4-agent). So this is a **same-transport
+detectability** result — *agentic systems are distinguishable on an identical transport via
+application-layer volume/behaviour* — **not** a controlled isolation of framework code with LLM, task
+and topology held equal. That stronger "framework identity with all else equal" claim remains future
+work; it is **not** claimed here. `confounds` and `sanity_scan_reading` in the JSON record this in full.
 
 ---
 
@@ -588,12 +621,15 @@ essentially unchanged (0.605→**0.594**), so the driver was not masking a posit
 transfer is **genuinely PARTIAL, with the residual gap owed to the legitimate different-LLM/session
 independence, not a driver artefact**. A2A-vs-background *detection* separates
 a2a_mcp at AUC 1.000 against non-agentic negatives; **§11 extends this to an independent agentic
-framework** (A2A vs AutoGen, AUC 1.0 — though transport-driven, so a same-transport SSE framework
-stays future work), and **§12 quantifies the loss-of-port-isolation cost** (detection precision
+framework** (A2A vs AutoGen, AUC 1.0 — though transport-driven), and **§13 removes that transport
+confound** (A2A vs CrewAI over an **identical** a2a-sdk JSON-RPC+SSE transport, AUROC 1.0 CLOSED —
+though driven by application-layer volume that also carries an LLM/interaction confound, so it shows
+same-transport **detectability**, not framework-code isolation), and **§12 quantifies the
+loss-of-port-isolation cost** (detection precision
 1.00→0.38 as background rises to 32:1 at a 5% FPR operating point; role recovery robust to non-agentic
 contamination given a reject stage). The deepest no-observable-ports case is threat-model framing, not a claim. A **same-session
 interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
-implementation fingerprint **collapses from 0.997 to chance (0.49)** once the capture-session
+implementation fingerprint **collapses from 0.997 to chance (0.46)** once the capture-session
 confound is removed — so within-family framework/implementation ID is a batch artefact, honestly
 **demoted**, and the recon claim is narrowed to telling apart *structurally-distinct* frameworks
 (which is topology recovery, not a session artefact).
@@ -610,6 +646,9 @@ independence, not — after §9b′ — a driver artefact; the coordinator layer
 system, **portable** cross-*framework* classifier transfer (§10 — the attack *replicates* on
 AutoGen behaviourally at 0.966, but a model trained on one framework does **not** transfer to the
 other: weaker direction 0.429, BOUNDED — the fingerprint is framework-specific), strong open-set
-rejection of novel workflows/roles, or a detector robust to hard agentic negatives — all future work.
+rejection of novel workflows/roles, a detector robust to hard agentic negatives, **controlled
+framework-identity separation with LLM/task/topology held equal** (§13 — the A2A-vs-CrewAI AUROC 1.0
+is same-transport *detectability*, driven by application-layer volume that also carries an
+LLM-backend/interaction-pattern confound, not an all-else-equal framework-code fingerprint) — all future work.
 *(Deployment C remains a runtime-invariance control, not a generalization result; §10 is the actual
 independent-framework data point.)*

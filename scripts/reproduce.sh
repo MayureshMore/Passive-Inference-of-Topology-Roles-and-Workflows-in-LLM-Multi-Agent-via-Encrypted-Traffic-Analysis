@@ -171,6 +171,22 @@ else
     # features — so gate on the raw dirs it actually reads, else the stage silently skips.
     if have "data/raw_offtheshelf" "data/raw_offtheshelf_inst2"; then
         run $PY scripts/evaluate_cross_instance_transfer.py; fi
+    stage "cross-instance transfer — NATURAL de-confound (§9b′; reads the natural inst-2 set)"
+    if have "data/raw_offtheshelf" "data/raw_offtheshelf_inst2_natural"; then
+        run env CIT_OUT=cross_instance_transfer_natural.json \
+            $PY scripts/evaluate_cross_instance_transfer.py --inst2 data/raw_offtheshelf_inst2_natural; fi
+    stage "cross-FRAMEWORK replication on AutoGen (§10; reads AutoGen gRPC pcaps — external deployment ~/autogen-xframework)"
+    if have "$HOME/autogen-xframework/data/raw" "data/raw_offtheshelf"; then
+        run $PY scripts/evaluate_cross_framework_autogen.py; fi
+    stage "agentic detection A2A-vs-AutoGen (Exp 1 / §11; reads a2a_mcp + AutoGen pcaps)"
+    if have "data/raw_offtheshelf" "$HOME/autogen-xframework/data/raw"; then
+        run $PY scripts/evaluate_agentic_detection.py; fi
+    stage "mixing/multiplexing degradation (Exp 2 / §12; a2a_mcp flows + processed background)"
+    if have "data/raw_offtheshelf" "data/processed_background/labels_background.json"; then
+        run $PY scripts/evaluate_mixing_degradation.py; fi
+    stage "same-transport detection A2A-vs-CrewAI (Exp 3 / §13; reads a2a_mcp + CrewAI-over-a2a-sdk pcaps — external deployment ~/crewai-xframework)"
+    if have "data/raw_offtheshelf" "$HOME/crewai-xframework/data/raw"; then
+        run $PY scripts/evaluate_crewai_detection.py; fi
     stage "paper artifacts"
     run $PY scripts/make_paper_artifacts.py
 fi

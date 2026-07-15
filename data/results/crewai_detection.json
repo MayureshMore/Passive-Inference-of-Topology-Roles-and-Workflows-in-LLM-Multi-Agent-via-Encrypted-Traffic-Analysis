@@ -1,0 +1,139 @@
+{
+  "task": "same-transport agentic detection \u2014 A2A vs CrewAI (Exp 3)",
+  "positive_class": {
+    "label": "A2A",
+    "desc": "A2A flows (a2a_mcp; a2a-sdk 0.3.26 JSON-RPC+SSE over HTTP)",
+    "n_flows": 501,
+    "n_trips": 150
+  },
+  "negative_class": {
+    "label": "CrewAI",
+    "desc": "CrewAI 1.15.2 brains served over a2a-sdk 0.3.26 (identical transport); local ollama",
+    "n_flows": 120,
+    "n_trips": 30
+  },
+  "representation": "35-dim per-flow traffic-shape vector (features/per_flow.py), pooled by server port; SAME extractor (extract_role_samples) for BOTH sides; port NEVER a feature.",
+  "method": "GBT (HistGradientBoosting); group-safe 5-fold StratifiedGroupKFold by trip; leakage-free OOF; AUROC + macro-F1 with percentile bootstrap 95% CI (2000 resamples); seed 42.",
+  "transport_parity": {
+    "a2a_positive": "a2a-sdk 0.3.26 (A2AStarletteApplication); JSON-RPC 2.0 + SSE over HTTP",
+    "crewai_negative": "a2a-sdk 0.3.26 (A2AStarletteApplication), IDENTICAL server lib+version; CrewAI 1.15.2 Agent/Task/Crew brain inside each specialist (local ollama)",
+    "on_wire_markers_observed": [
+      "POST /",
+      "HTTP/1.1 200",
+      "content-type: text/event-stream",
+      "jsonrpc",
+      "message/stream",
+      "\"kind\":\"task\""
+    ],
+    "conclusion": "SSE-over-HTTP JSON-RPC on BOTH sides \u2014 transport + server library HELD IDENTICAL; the only variable is the agent framework. Separation (if any) is behavioural, not a transport artifact."
+  },
+  "full_features": {
+    "auroc": 1.0,
+    "auroc_ci95": [
+      0.9999999999999999,
+      1.0
+    ],
+    "macro_f1": 1.0,
+    "macro_f1_ci95": [
+      1.0,
+      1.0
+    ]
+  },
+  "shape_only_ablation": {
+    "auroc": 0.9999667332002662,
+    "auroc_ci95": [
+      0.9998473517045974,
+      1.0
+    ],
+    "macro_f1": 0.9922283359127638,
+    "macro_f1_ci95": [
+      0.9825239908177583,
+      1.0
+    ],
+    "n_features": 16,
+    "features_kept": [
+      "mean_sz_out",
+      "std_sz_out",
+      "p25_sz_out",
+      "p75_sz_out",
+      "mean_sz_in",
+      "std_sz_in",
+      "p25_sz_in",
+      "p75_sz_in",
+      "duration_s",
+      "mean_iat",
+      "std_iat",
+      "mean_burst_dur",
+      "mean_ibg",
+      "bytes_out_ratio",
+      "pkt_size_asymmetry",
+      "iqr_size_in"
+    ],
+    "features_dropped": [
+      "n_pkts_out",
+      "n_pkts_in",
+      "bytes_out",
+      "bytes_in",
+      "n_bursts",
+      "mean_burst_bytes",
+      "std_burst_bytes",
+      "cumul_bytes_q0",
+      "cumul_bytes_q1",
+      "cumul_bytes_q2",
+      "cumul_bytes_q3",
+      "cumul_bytes_q4",
+      "cumul_bytes_q5",
+      "cumul_bytes_q6",
+      "cumul_bytes_q7",
+      "cumul_bytes_q8",
+      "cumul_bytes_q9",
+      "n_small_inbound",
+      "n_response_bursts"
+    ]
+  },
+  "single_feature_sanity_scan": [
+    {
+      "feature": "n_small_inbound",
+      "single_feature_auroc": 0.991,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "n_response_bursts",
+      "single_feature_auroc": 0.987,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "n_bursts",
+      "single_feature_auroc": 0.984,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "n_pkts_out",
+      "single_feature_auroc": 0.981,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "n_pkts_in",
+      "single_feature_auroc": 0.981,
+      "is_shape_feature": false
+    },
+    {
+      "feature": "std_burst_bytes",
+      "single_feature_auroc": 0.969,
+      "is_shape_feature": false
+    }
+  ],
+  "sanity_scan_reading": "ALL top single-feature drivers are VOLUME/burst-count features (n_small_inbound, n_response_bursts, n_bursts, n_pkts_out/in). They are NOT transport-framing (transport is identical), so the separation is application-layer \u2014 but volume/burst counts are exactly what the LLM-backend and interaction-pattern confounds below move, so the scan says the signal is response-volume/behaviour, not deep framework-code structure.",
+  "confounds": {
+    "note": "The positive (a2a_mcp) and negative (CrewAI) differ in MORE than the framework. Transport is controlled (identical a2a-sdk 0.3.26 JSON-RPC+SSE); these are NOT.",
+    "llm_backend_asymmetry": "a2a_mcp positives use CLOUD gemini-2.5-flash; CrewAI negatives use LOCAL ollama/llama3.2:3b. Different response sizes/chunking move the volume/burst features that drive the separation. This is the dominant confound and cannot be cheaply removed (the a2a_mcp positive set is frozen canonical, collected with gemini).",
+    "interaction_pattern": "a2a_mcp's orchestrator runs MULTI-TURN clarifying Q&A (drive_orch.py, up to 6 turns); the CrewAI driver issues SINGLE-TURN calls per specialist \u2014 very different burst structure.",
+    "topology": "6-agent a2a_mcp (mcp/orch/planner + 3 specialists) vs 4-agent CrewAI (planner + 3 specialists); flows/trip differ (~3.3 vs 4.0).",
+    "implication": "AUROC 1.0 is genuine SAME-TRANSPORT separability (transport provably removed), a real privacy finding \u2014 but it does NOT cleanly isolate CrewAI-vs-A2A FRAMEWORK CODE from the LLM/interaction/topology differences. Read as 'agentic systems are distinguishable on the same transport via application-layer volume/behaviour', NOT as 'framework identity is recoverable with all else held equal'."
+  },
+  "verdict": "CLOSED (A2A separable from a SAME-TRANSPORT agentic framework on structural/behavioural signal; >=0.90, CI clear, survives shape-only; transport identical by construction so NOT a transport artifact)",
+  "verdict_basis": "pre-registered \u00a74 AUROC bands; verdict field matches the number (no re-stamp). CLOSED here means the DETECTION question (same-transport separability) is answered in the affirmative; see confounds for what it does and does not isolate.",
+  "interpretation": "A2A and CrewAI run over an IDENTICAL transport (a2a-sdk 0.3.26 JSON-RPC+SSE, confirmed on the wire \u2014 see transport_parity), so \u2014 unlike Exp 1 vs AutoGen \u2014 the separation CANNOT be a transport-family artifact; Exp 1's SCOPED outcome is excluded by construction. The detector separates them at AUROC 1.0 and the separation SURVIVES the shape-only ablation, so it is not merely raw connection volume. BUT the single-feature scan shows the drivers are application-layer VOLUME/burst-count features, and those are precisely what the LLM-backend (gemini vs ollama), interaction-pattern (multi-turn vs single-turn) and topology (6 vs 4 agents) confounds move. So this ANSWERS the same-transport DETECTION question in the affirmative \u2014 an observer who cannot use transport can still separate these agentic systems from application-layer traffic shape \u2014 but it does NOT isolate framework code from those confounds (see confounds).",
+  "honest_scoping": "Single CrewAI topology (planner coordinator + air/hotel/car specialists), single LLM (ollama/llama3.2:3b), travel domain matched to the A2A positives. CrewAI has no turnkey serve, so specialists are served on the a2a-sdk stack (the faithful realisation of CrewAI's own native A2A transport, crewai.a2a) with genuine CrewAI Agent brains inside. Transport is held identical ON PURPOSE (removing Exp 1's transport confound); the LLM backend, interaction pattern and agent count are NOT held equal (see confounds), so the result is a same-transport DETECTABILITY finding, not a controlled framework-behaviour fingerprint. Not a claim about every CrewAI deployment.",
+  "figure": "data/results/figures/crewai_detection.png"
+}
