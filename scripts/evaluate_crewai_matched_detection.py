@@ -139,8 +139,14 @@ def main(args: argparse.Namespace) -> None:
             "task_domain": "IDENTICAL — A's OWN prompts (code_review/data_analysis/research_retrieval/support_triage)",
             "role_semantics": "IDENTICAL — same per-role instructions as agents/{orchestrator,executor,retriever,validator}.py",
             "call_topology": "IDENTICAL — chain orchestrator->executor->retriever->validator, agent-to-agent A2A",
-            "remaining_variable": "ONLY the framework's internal machinery — A's direct llm_generate per "
-                                  "role vs CrewAI's Agent/Task/Crew reasoning loop.",
+            "remaining_variables": "NOT a single variable. (1) The frameworks' response-EMISSION behaviour "
+                                   "(A streams token-by-token via llm_stream; CrewAI's Crew.kickoff() blocks "
+                                   "and returns one artifact) — the dominant driver, but a CONFIGURATION "
+                                   "property (see scope_streaming_is_configuration), not an immutable "
+                                   "signature. (2) A chain-forwarding-format difference we WIRED (A forwards "
+                                   "'previous output + original instruction'; this CrewAI chain forwards just "
+                                   "the output) — a disclosed secondary contributor we control. So it is NOT "
+                                   "'the framework's internal machinery alone'.",
         },
         "representation": "35-dim per-flow traffic-shape vector, pooled by server port; SAME extractor "
                           "(extract_role_samples) for BOTH sides; port NEVER a feature.",
@@ -169,37 +175,50 @@ def main(args: argparse.Namespace) -> None:
                 "size/structure separation, not a subtle fingerprint; a fully forwarding-matched "
                 "replication is future work but would not change the streaming-vs-blocking driver.",
         },
+        "scope_streaming_is_configuration": (
+            "The dominant driver — streaming vs blocking response emission — is a CONFIGURATION / "
+            "API-usage property, NOT an immutable framework identity. CrewAI CAN stream (LLM(stream=True), "
+            "step callbacks); deployment A could have been written to block. So the honest claim is NOT "
+            "'framework identity is detectable', but 'implementations whose response-emission behaviour "
+            "DIFFERS (streaming vs blocking) are trivially separable — here the default idiomatic difference "
+            "between these two frameworks'. A CrewAI deployment configured to STREAM might be "
+            "indistinguishable from A. This narrower claim fits the paper's thesis: how an implementation "
+            "EMITS its calls is itself part of the call structure the attack reads."),
         "verdict": verdict,
         "verdict_basis": "corrected §4 bands with confounded=False (LLM/interaction/agent-count/topology/"
-                         "domain all held equal). Verdict matches the number — no re-stamp. CLOSED here is "
-                         "for framework/implementation IDENTITY detectability with the major confounds "
-                         "controlled; see driver_mechanism for exactly what drives it.",
+                         "domain all held equal). Verdict matches the number — no re-stamp. CLOSED = separable "
+                         "with the major confounds controlled; see driver_mechanism (what drives it) and "
+                         "scope_streaming_is_configuration (why this is a response-emission claim, not a "
+                         "framework-identity one).",
         "interpretation": (
-            "With transport, LLM, agent count, host, task domain, role semantics and call topology ALL "
-            "held equal (the confounds that made §13 SCOPED are gone), the remaining variable is framework "
-            "code. "
-            + ("The two are still separable at AUROC 1.0 (CI clear of chance), so an observer recovers "
-               "FRAMEWORK/IMPLEMENTATION IDENTITY from traffic shape even with all else equal — the "
-               "same-transport detection open problem CLOSES. Crucially, and unlike §13, the driver is a "
-               "GENUINE framework difference not an LLM/topology confound: deployment A streams "
-               "token-by-token while CrewAI's Crew.kickoff() returns one blocking blob, flipping the "
-               "packet-size asymmetry (see driver_mechanism). Honest caveat: the separation is systematic "
-               "and size-based (not a subtle behavioural fingerprint), and a chain-forwarding-format "
-               "difference in the CrewAI wiring is a secondary contributor — disclosed, and it does not "
-               "change the streaming-vs-blocking driver."
+            "With transport, LLM, agent count, host, task domain, role semantics and call topology all held "
+            "equal (the confounds that made §13 SCOPED are gone), "
+            + ("the two implementations are still separable at AUROC 1.0 (CI clear of chance) — so with all "
+               "major confounds controlled an observer can still tell them apart from traffic shape, and the "
+               "same-transport detection open problem CLOSES for THIS pair. But the honest reading is "
+               "NARROWER than 'framework identity is detectable'. Unlike §13 the driver is not an LLM/topology "
+               "confound; it is a response-EMISSION difference — deployment A streams token-by-token, CrewAI's "
+               "Crew.kickoff() blocks and returns one artifact, flipping the packet-size asymmetry (see "
+               "driver_mechanism). And streaming-vs-blocking is a CONFIGURATION property (see "
+               "scope_streaming_is_configuration): CrewAI can be configured to stream and A could be blocking, "
+               "so a streaming-configured CrewAI might be indistinguishable. The defensible claim is therefore "
+               "'implementations that differ in response-emission behaviour (streaming vs blocking) are "
+               "trivially separable — the default idiomatic difference between these two frameworks', plus a "
+               "disclosed secondary chain-forwarding-wiring residual. Systematic and size-based, not a subtle "
+               "fingerprint."
                if separable else
-               "They are NOT reliably separable (AUROC <0.90 or CI touches chance). With everything except "
-               "the framework held equal, the two agentic systems are traffic-indistinguishable — the "
-               "STRONGER, more interesting privacy finding: same-transport agentic frameworks cannot be "
-               "told apart from traffic shape once LLM/topology/domain are controlled.")),
+               "the two agentic systems are NOT reliably separable (AUROC <0.90 or CI touches chance) — the "
+               "STRONGER, more interesting privacy finding: with LLM/topology/domain controlled, same-transport "
+               "agentic frameworks cannot be told apart from traffic shape.")),
         "honest_scoping": "Deployment A is OUR system, so this is not an external-framework claim; it is the "
-                          "clean controlled test §13 could not be. Single topology (chain), single LLM, one "
-                          "prompt set. CrewAI is served on the a2a-sdk stack (faithful to its native A2A "
-                          "transport) with the same roles/instructions/chain/prompts as A; the CrewAI "
-                          "chain-forwarding format was wired by us (secondary driver, disclosed). The "
-                          "result: framework/implementation identity is detectable with all major confounds "
-                          "controlled, driven mainly by an inherent streaming-vs-blocking behavioural "
-                          "difference — on this role set and domain.",
+                          "clean controlled test §13 could not be (7 variables held equal). Single topology "
+                          "(chain), single LLM, one prompt set. CrewAI is served on the a2a-sdk stack (faithful "
+                          "to its native A2A transport) with A's roles/instructions/chain/prompts; the CrewAI "
+                          "chain-forwarding format was wired by us (disclosed secondary driver). The claim is "
+                          "narrow and honest: implementations differing in response-emission (streaming vs "
+                          "blocking) are trivially separable here — a CONFIGURATION difference that is the "
+                          "default idiomatic gap between these frameworks, NOT an immutable framework signature "
+                          "(scope_streaming_is_configuration).",
         "figure": str(fig_png),
     }
     out_dir.mkdir(parents=True, exist_ok=True)

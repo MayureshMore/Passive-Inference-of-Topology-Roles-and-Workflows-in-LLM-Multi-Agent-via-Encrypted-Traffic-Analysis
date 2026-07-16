@@ -29,8 +29,9 @@ single-feature AUROC sanity scan that caught the transport driver in Exp 1.
 CORRECTED §4 bands (headline AUROC; chance 0.50; no re-stamp). The original pre-registration only
 excluded *transport-framing* drivers from CLOSED; it did not anticipate that OTHER uncontrolled
 confounds (LLM backend, interaction pattern, agent count) would step into that vacancy. Corrected:
-    AUROC >= 0.90 & CI clear, AND LLM/interaction/topology also held equal -> CLOSED (framework
-        code is the only remaining variable; same-transport framework identity genuinely detectable)
+    AUROC >= 0.90 & CI clear, AND LLM/interaction/topology also held equal -> CLOSED (separable with
+        the major confounds controlled; the driver is a framework response-EMISSION difference plus a
+        disclosed wiring residual, NOT 'framework code alone' — see §13.1 scope_streaming_is_configuration)
     AUROC >= 0.90 & CI clear, BUT other variables uncontrolled             -> SCOPED (same-transport
         SEPARABILITY shown — transport genuinely excluded — but the separation is explicable by the
         uncontrolled LLM/interaction/topology differences, so framework identity stays open)
@@ -122,9 +123,11 @@ def band(full, shape, confounded: bool) -> str:
                     "separation is driven by application-layer VOLUME that the UNCONTROLLED "
                     "LLM-backend / interaction-pattern / agent-count differences move; framework-"
                     "identity detection with ALL ELSE EQUAL remains OPEN — see confounds)")
-        return ("CLOSED (A2A separable from a SAME-TRANSPORT agentic framework with LLM, agent count, "
-                "host and transport all held equal — >=0.90, CI clear; framework orchestration code is "
-                "the only remaining variable, so the same-transport detection question is genuinely closed)")
+        return ("CLOSED (separable at >=0.90, CI clear, with the major confounds — LLM, agent count, host, "
+                "transport, domain, roles, topology — all held equal; NOT 'framework code alone': driven by "
+                "a response-EMISSION difference (streaming vs blocking) PLUS a disclosed chain-forwarding "
+                "wiring residual, and streaming-vs-blocking is a CONFIGURATION property — see "
+                "driver_mechanism and scope_streaming_is_configuration)")
     return ("BOUNDED (not reliably distinguishable: <0.90 or CI touches chance — an honest "
             "privacy-relevant bound; with all else equal this is the STRONGER finding — agentic "
             "frameworks are indistinguishable on identical transport)")

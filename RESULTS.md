@@ -607,31 +607,35 @@ exactly**: the *same 4 roles with the same per-role instructions*, chained the *
 *same a2a-sdk 0.3.26 SSE stack*, *same local ollama/llama3.2:3b*, *same host/lo0*, driven on **A's own
 prompts** (10 per workflow across code_review / data_analysis / research_retrieval / support_triage,
 chain topology). Controlled: transport, server library+version, LLM, agent count, host, task domain,
-role semantics, call topology. **The only remaining variable is the framework's own machinery.** Same
-extractor both sides, GBT, group-safe CV by trip, bootstrap CI, shape-only + single-feature scan.
-n = 109 A flows (40 trips) vs 156 CrewAI flows (39 trips).
+role semantics, call topology. What remains is **how each framework emits its calls** (plus a
+chain-forwarding-format difference we wired — disclosed below); it is **not** "the framework's internal
+machinery alone." Same extractor both sides, GBT, group-safe CV by trip, bootstrap CI, shape-only +
+single-feature scan. n = 109 A flows (40 trips) vs 156 CrewAI flows (39 trips).
 `data/results/crewai_matched_detection.json` (+ `figures/crewai_matched_detection.png`).
 
 **AUROC 1.000 [1.000, 1.000], macro-F1 1.000, shape-only 1.000. Verdict CLOSED.** With every major
-confound held equal, deployment A and CrewAI are still **perfectly separable** — so **framework /
-implementation identity is genuinely detectable from traffic shape with all else equal**, and the
-same-transport detection open problem **closes** (subject to the honest mechanism below).
+confound held equal, deployment A and CrewAI are still **perfectly separable** — so with all major
+confounds controlled an observer can still tell the two implementations apart from traffic shape, and
+the same-transport detection problem **closes for this pair**. But read the claim narrowly (below).
 
-**Why (the driver is a real framework difference, not a confound — verified).** The separation is
-complete and size-based (zero overlap on outbound-size features; `std_sz_out`, `pkt_size_asymmetry`,
-`p75_sz_out` all single-feature AUROC 1.0). The mechanism is an **inherent framework-API difference**:
-deployment A **streams its response token-by-token** (`llm_stream` → many *small* outbound SSE packets,
-`mean_sz_out`≈90), whereas **CrewAI's `Crew.kickoff()` is blocking and returns one large final artifact**
-(*few large* outbound packets, `mean_sz_out`≈565, up to 1798) — flipping the packet-size asymmetry
-(A large-in/small-out; CrewAI large-out/small-in). This is genuine framework code (A's streaming agent
-vs CrewAI's synchronous Crew), **not** the LLM/topology confound that scoped §13. **Honest caveat
-(disclosed, not hidden):** a *secondary* contributor is the chain-forwarding format — A forwards
-"previous output + original instruction", the CrewAI chain forwards just the upstream output, and that
-wiring was ours; it is a contributor we control, though it does not change the streaming-vs-blocking
-driver, and a fully forwarding-matched replication is future work. So the honest claim is **framework/
-implementation identity is detectable with all major confounds controlled, driven mainly by an inherent
-streaming-vs-blocking behavioural difference** — a *systematic, size-based* separation, not a subtle
-behavioural fingerprint. `driver_mechanism` in the JSON records this in full.
+**Why (the driver, verified).** The separation is complete and size-based (zero overlap on outbound-size
+features; `std_sz_out`, `pkt_size_asymmetry`, `p75_sz_out` all single-feature AUROC 1.0). The mechanism
+is a **response-emission difference**: deployment A **streams token-by-token** (`llm_stream` → many
+*small* outbound SSE packets, `mean_sz_out`≈90), whereas **CrewAI's `Crew.kickoff()` blocks and returns
+one large final artifact** (*few large* outbound packets, `mean_sz_out`≈565, up to 1798) — flipping the
+packet-size asymmetry (A large-in/small-out; CrewAI large-out/small-in). This is **not** the LLM/topology
+confound that scoped §13. **Two honest caveats.** (1) *Streaming-vs-blocking is a **configuration**
+property, not framework identity.* CrewAI **can** stream (`LLM(stream=True)`, step callbacks) and A could
+have been written to block, so a **streaming-configured CrewAI might be indistinguishable from A**. The
+defensible claim is therefore **"implementations whose response-emission behaviour differs (streaming vs
+blocking) are trivially separable — here the *default idiomatic* difference between these two
+frameworks,"** *not* "framework identity is detectable." (This actually fits the thesis: *how* an
+implementation emits its calls is itself part of the call structure the attack reads.) (2) A *secondary*
+contributor is the chain-forwarding format — A forwards "previous output + original instruction", our
+CrewAI chain forwards just the upstream output; that wiring was ours (a contributor we control, disclosed),
+and a fully forwarding-matched replication is future work. Net: a *systematic, size-based* separation
+driven by a configuration-level emission difference — not a subtle behavioural fingerprint.
+`driver_mechanism` and `scope_streaming_is_configuration` in the JSON record this in full.
 
 ---
 
@@ -665,9 +669,10 @@ transport is genuinely excluded, but the separation is driven by application-lay
 uncontrolled LLM/interaction/topology differences move, so it shows same-transport **detectability**,
 not framework-code isolation), and the **§13.1 matched pair** closes it cleanly (deployment A vs a
 CrewAI built to match A on LLM, transport, agents, host, domain, roles and topology — **AUROC 1.0
-CLOSED**, framework/implementation identity detectable with all else equal, driven by an inherent
-**streaming-vs-blocking** framework difference, not a confound), and **§12 quantifies the
-loss-of-port-isolation cost** (detection precision
+CLOSED**: with all major confounds controlled the two implementations are still separable, driven by a
+**streaming-vs-blocking** response-emission difference — a *configuration* property, so the claim is
+"implementations differing in emission behaviour are separable," not "framework identity is detectable"),
+and **§12 quantifies the loss-of-port-isolation cost** (detection precision
 1.00→0.38 as background rises to 32:1 at a 5% FPR operating point; role recovery robust to non-agentic
 contamination given a reject stage). The deepest no-observable-ports case is threat-model framing, not a claim. A **same-session
 interleaved control** (§8.1) independently confirms the runtime-invariance: the apparent A↔C
@@ -689,12 +694,14 @@ system, **portable** cross-*framework* classifier transfer (§10 — the attack 
 AutoGen behaviourally at 0.966, but a model trained on one framework does **not** transfer to the
 other: weaker direction 0.429, BOUNDED — the fingerprint is framework-specific), strong open-set
 rejection of novel workflows/roles, a detector robust to hard agentic negatives — all future work.
-**Framework/implementation identity with all else equal is now CLAIMED, with scope:** §13 A2A-vs-CrewAI
-is SCOPED (same-transport *detectability* carrying an LLM/interaction confound), but the **§13.1 matched
+**Same-transport separability with all else equal is now CLAIMED, with scope:** §13 A2A-vs-CrewAI is
+SCOPED (same-transport *detectability* carrying an LLM/interaction confound), but the **§13.1 matched
 pair** (deployment A vs a matched CrewAI, LLM/transport/agents/host/domain/roles/topology all held equal)
-**closes it — AUROC 1.0 CLOSED** — framework identity IS detectable with all else equal, though the
-driver is an inherent **streaming-vs-blocking** difference (a *systematic, size-based* separation, with a
-disclosed secondary chain-forwarding-wiring contributor), not a subtle behavioural fingerprint; a fully
-forwarding-matched replication is future work.
+**closes it — AUROC 1.0 CLOSED**. Read narrowly: the driver is a **streaming-vs-blocking** response-emission
+difference, which is a **configuration** property (CrewAI can stream; A could block) — so the claim is
+*"implementations whose emission behaviour differs are trivially separable, the default idiomatic gap
+between these two frameworks,"* **not** "framework identity is an immutable, always-detectable signature."
+A disclosed secondary chain-forwarding-wiring contributor and a fully forwarding-matched replication are
+future work.
 *(Deployment C remains a runtime-invariance control, not a generalization result; §10 is the actual
 independent-framework data point.)*
