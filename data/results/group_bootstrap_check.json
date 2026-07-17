@@ -1,0 +1,139 @@
+{
+  "task": "C4 \u2014 group/cluster bootstrap check on the headline CIs",
+  "rationale": "evaluation/stats.bootstrap_ci resamples observations i.i.d., but the data are clustered (prompt_group / trip) and the CV is already group-safe. An i.i.d. bootstrap over correlated observations can be over-confident (too narrow). This recomputes the intervals with a cluster bootstrap that resamples whole groups.",
+  "method": "percentile bootstrap, 2000 resamples, seed 42, 2.5/97.5 \u2014 identical to evaluation/stats except the resampling unit (observation vs group).",
+  "decision_rule": "group interval >10% wider, or a \u00a74 band verdict flips \u2192 paper reports the group bootstrap; otherwise a one-line note that the choice does not matter.",
+  "point_estimates_unchanged": true,
+  "headlines": [
+    {
+      "what": "\u00a71 closed-world WORKFLOW, deployment A (GBT, StratifiedGroupKFold by prompt_group, pooled OOF)",
+      "published_headline_macro_f1": 0.708,
+      "note_point_estimate": "The published 0.708 is the MEAN OF FOLD macro-F1s; the pooled-OOF point below is the bootstrap's own point estimate. Only the INTERVAL is under test here \u2014 point estimates are untouched.",
+      "cluster_unit": "prompt_group",
+      "n_obs": 600,
+      "chance": 0.25,
+      "iid_bootstrap": {
+        "macro_f1": 0.709146810606837,
+        "ci_lo": 0.6724465579282759,
+        "ci_hi": 0.7425345147627138,
+        "width": 0.0701,
+        "method": "i.i.d. bootstrap over observations (current)"
+      },
+      "group_bootstrap": {
+        "macro_f1": 0.709146810606837,
+        "ci_lo": 0.6654258341978697,
+        "ci_hi": 0.7453628690103181,
+        "width": 0.0799,
+        "n_groups": 289,
+        "method": "cluster/group bootstrap \u2014 resample groups with replacement"
+      },
+      "comparison": {
+        "width_iid": 0.0701,
+        "width_group": 0.0799,
+        "width_ratio_group_over_iid": 1.14,
+        "materially_wider_gt10pct": true,
+        "band_verdict_changes": false,
+        "decision": "REPORT GROUP BOOTSTRAP (materially wider or band changes)"
+      }
+    },
+    {
+      "what": "\u00a79a coordinator 3-way CROSS-INSTANCE transfer (weaker direction is the headline)",
+      "published_headline_macro_f1": 0.866,
+      "cluster_unit": "trip",
+      "roles": [
+        "mcp",
+        "orchestrator",
+        "planner"
+      ],
+      "both_directions": [
+        {
+          "direction": "inst1\u2192inst2",
+          "chance": 0.3333333333333333,
+          "n_test": 246,
+          "iid_bootstrap": {
+            "macro_f1": 0.8664663774972494,
+            "ci_lo": 0.8205752743002208,
+            "ci_hi": 0.9072320170654127,
+            "width": 0.0867,
+            "method": "i.i.d. bootstrap over observations (current)"
+          },
+          "group_bootstrap": {
+            "macro_f1": 0.8664663774972494,
+            "ci_lo": 0.8079796066919659,
+            "ci_hi": 0.9157855577851222,
+            "width": 0.1078,
+            "n_groups": 82,
+            "method": "cluster/group bootstrap \u2014 resample groups with replacement"
+          },
+          "comparison": {
+            "width_iid": 0.0867,
+            "width_group": 0.1078,
+            "width_ratio_group_over_iid": 1.243,
+            "materially_wider_gt10pct": true,
+            "band_verdict_changes": false,
+            "decision": "REPORT GROUP BOOTSTRAP (materially wider or band changes)"
+          }
+        },
+        {
+          "direction": "inst2\u2192inst1",
+          "chance": 0.3333333333333333,
+          "n_test": 450,
+          "iid_bootstrap": {
+            "macro_f1": 0.9955553580159119,
+            "ci_lo": 0.9884528118076769,
+            "ci_hi": 1.0,
+            "width": 0.0115,
+            "method": "i.i.d. bootstrap over observations (current)"
+          },
+          "group_bootstrap": {
+            "macro_f1": 0.9955553580159119,
+            "ci_lo": 0.9888858016115588,
+            "ci_hi": 1.0,
+            "width": 0.0111,
+            "n_groups": 150,
+            "method": "cluster/group bootstrap \u2014 resample groups with replacement"
+          },
+          "comparison": {
+            "width_iid": 0.0115,
+            "width_group": 0.0111,
+            "width_ratio_group_over_iid": 0.965,
+            "materially_wider_gt10pct": false,
+            "band_verdict_changes": false,
+            "decision": "CHOICE DOES NOT MATTER \u2014 i.i.d. interval stands (group interval not materially wider, no band change); one line in the paper suffices"
+          }
+        }
+      ],
+      "weaker_direction": "inst1\u2192inst2",
+      "weaker_direction_result": {
+        "direction": "inst1\u2192inst2",
+        "chance": 0.3333333333333333,
+        "n_test": 246,
+        "iid_bootstrap": {
+          "macro_f1": 0.8664663774972494,
+          "ci_lo": 0.8205752743002208,
+          "ci_hi": 0.9072320170654127,
+          "width": 0.0867,
+          "method": "i.i.d. bootstrap over observations (current)"
+        },
+        "group_bootstrap": {
+          "macro_f1": 0.8664663774972494,
+          "ci_lo": 0.8079796066919659,
+          "ci_hi": 0.9157855577851222,
+          "width": 0.1078,
+          "n_groups": 82,
+          "method": "cluster/group bootstrap \u2014 resample groups with replacement"
+        },
+        "comparison": {
+          "width_iid": 0.0867,
+          "width_group": 0.1078,
+          "width_ratio_group_over_iid": 1.243,
+          "materially_wider_gt10pct": true,
+          "band_verdict_changes": false,
+          "decision": "REPORT GROUP BOOTSTRAP (materially wider or band changes)"
+        }
+      },
+      "band_note": "\u00a74 DEPLOYABLE requires macro-F1 >=0.70 AND CI clear of chance; the group interval is checked against the same bar (no re-stamping)."
+    }
+  ],
+  "summary": "At least one headline interval is materially wider under the group bootstrap \u2014 report the group interval for it."
+}

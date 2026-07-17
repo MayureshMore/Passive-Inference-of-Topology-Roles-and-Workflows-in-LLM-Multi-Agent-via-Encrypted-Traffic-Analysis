@@ -190,6 +190,12 @@ else
     stage "matched-pair detection A-vs-CrewAI, ALL ELSE EQUAL (§13.1; reads deployment-A pcaps + matched CrewAI on A's roles/prompts — ~/crewai-xframework/data/raw_matched)"
     if have "data/raw" "$HOME/crewai-xframework/data/raw_matched"; then
         run $PY scripts/evaluate_crewai_matched_detection.py; fi
+    stage "capture-interface provenance manifest (C1; loopback vs cross-host, derived from traces)"
+    if have "data/raw"; then
+        run $PY scripts/emit_capture_interface.py; fi
+    stage "group/cluster bootstrap check on headline CIs (C4; prompt_group + trip clusters)"
+    if have "data/processed/labels.json" "data/raw_offtheshelf" "data/raw_offtheshelf_inst2"; then
+        run $PY scripts/check_group_bootstrap.py; fi
     stage "paper artifacts"
     run $PY scripts/make_paper_artifacts.py
 fi

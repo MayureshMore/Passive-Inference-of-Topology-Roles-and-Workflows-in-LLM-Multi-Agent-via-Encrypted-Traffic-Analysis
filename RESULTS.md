@@ -12,6 +12,13 @@ via `bash scripts/reproduce.sh --full-suite` (RF/GBT seed-fixed; deep models opt
 > confounded (the raw field is retained in the JSON, marked `latency_overhead_note`).
 > (3) topology/parallelism are a **structural baseline** (the connection graph is readable
 > from IP headers without ML) — reported for completeness, not as the attack contribution.
+> (4) **Capture provenance (machine-checkable).** Every result is derived from a **loopback**
+> capture (all agents on one host, tcpdump on `lo0`) **except §4/C5**, whose traces are genuinely
+> **cross-host** (agents on a remote VM; endpoints on a routable address, captured post-decapsulation
+> on the VPN tunnel). This is derived from the traces themselves — each capture's endpoint hosts (and,
+> where absent, the pcap's own IPs) — not asserted in prose:
+> `data/results/capture_interface_manifest.json`. (5) Headline CIs use a **cluster (group) bootstrap**
+> — see the C4 notes in §1 and §9a.
 
 ---
 
@@ -29,6 +36,12 @@ across folds). `data/results/closed_world/`.
 
 Workflow and agent role — the real attack targets — are recovered far above chance from
 metadata alone.
+
+> **Interval convention (C4).** Samples are clustered by **prompt_group** (the CV is already group-safe),
+> so the headline interval is a **cluster (group) bootstrap** — resampling whole prompt-groups:
+> workflow **[0.665, 0.745]** (289 groups). The i.i.d. interval ([0.672, 0.743]) is **14% narrower** and
+> over-confident, since same-prompt-family traces are correlated. Point estimate unchanged; the
+> conclusion (far above the 0.25 chance line) is unchanged. `data/results/group_bootstrap_check.json`.
 
 **Deep models — known-DEGENERATE pipeline, excluded from all claims.** The CNN/Transformer
 do not merely underperform: they **collapse to near-single-class prediction**, which is why
@@ -410,10 +423,16 @@ natural in both instances. Cross-instance transfer, both directions:
 | train inst-1 → test inst-2 | **0.866 [0.821, 0.907]** | 0.333 |
 | train inst-2 → test inst-1 | 0.996 [0.988, 1.000] | 0.333 |
 
-**Verdict (§4): DEPLOYABLE ATTACK** — weaker direction **0.866**, CI floor 0.821 far clear of chance,
-above the ≥0.70 bar. Train on your own copy of a2a_mcp, read the coordinator roles off an independent
-victim copy despite different LLM/prompts/session. (An earlier 67-trip instance-2 gave 0.912; the
-number is stable as instance-2 grows.) This is the paper's clean deployable-attack result.
+**Verdict (§4): DEPLOYABLE ATTACK** — weaker direction **0.866**, **group-bootstrap CI [0.808, 0.916]**
+far clear of chance, above the ≥0.70 bar. Train on your own copy of a2a_mcp, read the coordinator roles
+off an independent victim copy despite different LLM/prompts/session. (An earlier 67-trip instance-2
+gave 0.912; the number is stable as instance-2 grows.) This is the paper's clean deployable-attack result.
+
+> **Interval convention (C4).** Role samples are clustered by **trip**, so the interval reported above is
+> a **cluster (group) bootstrap** — resampling whole trips, not individual flows. The i.i.d. interval
+> ([0.821, 0.907]) is **24% narrower** and therefore over-confident, because flows from one trip are
+> correlated. The point estimate is identical and **the DEPLOYABLE verdict is unchanged** (floor 0.808 ≫
+> chance 0.333). `data/results/group_bootstrap_check.json`.
 
 **Volume ablation — the result is behavioural, not connection-volume.** Re-running the same transfer on a
 **shape-only** feature set (16/35 dims: per-packet size shape, IAT/duration/gap timing, burst-duration

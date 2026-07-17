@@ -1,0 +1,629 @@
+{
+  "task": "C1 support \u2014 machine-checkable capture-interface provenance (loopback vs cross-host)",
+  "why": "The threat-model relabel turns on which results are loopback captures vs a real network path. This makes that fact checkable from the traces rather than from prose.",
+  "derivation": "Per capture dir, read every sidecar's agent_endpoints: all-loopback hosts \u2192 loopback; any routable host \u2192 cross_host. Evidence (the observed hosts) is recorded so the label cannot drift from the data.",
+  "declared_interface_in_configs": {
+    "testbed_langgraph.yaml": "lo0",
+    "testbed_local.yaml": "lo0",
+    "testbed_wan.yaml": "en0"
+  },
+  "data_directories": {
+    "data/raw": {
+      "dir": "data/raw",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_amodel": {
+      "dir": "data/raw_amodel",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_amodel_sdk": {
+      "dir": "data/raw_amodel_sdk",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_b": {
+      "dir": "data/raw_b",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_b_sdk": {
+      "dir": "data/raw_b_sdk",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_background": {
+      "dir": "data/raw_background",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 0,
+      "evidence_source": "pcap IPs (no agent_endpoints in sidecars)",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_background_sdk": {
+      "dir": "data/raw_background_sdk",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 0,
+      "evidence_source": "pcap IPs (no agent_endpoints in sidecars)",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_blogic": {
+      "dir": "data/raw_blogic",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_blogic_sdk": {
+      "dir": "data/raw_blogic_sdk",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 590,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_defense_pad": {
+      "dir": "data/raw_defense_pad",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_defense_rate": {
+      "dir": "data/raw_defense_rate",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 600,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_interleaved_a": {
+      "dir": "data/raw_interleaved_a",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 72,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_interleaved_a_pwr": {
+      "dir": "data/raw_interleaved_a_pwr",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 240,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_interleaved_b": {
+      "dir": "data/raw_interleaved_b",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 72,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_interleaved_langgraph": {
+      "dir": "data/raw_interleaved_langgraph",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 72,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_langgraph": {
+      "dir": "data/raw_langgraph",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 481,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_offtheshelf": {
+      "dir": "data/raw_offtheshelf",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 150,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_offtheshelf_inst2": {
+      "dir": "data/raw_offtheshelf_inst2",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 82,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_offtheshelf_inst2_natural": {
+      "dir": "data/raw_offtheshelf_inst2_natural",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 102,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wan": {
+      "dir": "data/raw_wan",
+      "capture": "cross_host",
+      "interface_class": "cross-host (agents on separate machines, real network path)",
+      "observed_endpoint_hosts": [
+        "10.16.0.35"
+      ],
+      "n_traces_with_endpoints": 750,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wan_poc": {
+      "dir": "data/raw_wan_poc",
+      "capture": "cross_host",
+      "interface_class": "cross-host (agents on separate machines, real network path)",
+      "observed_endpoint_hosts": [
+        "10.16.0.35"
+      ],
+      "n_traces_with_endpoints": 4,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wan_poc2": {
+      "dir": "data/raw_wan_poc2",
+      "capture": "cross_host",
+      "interface_class": "cross-host (agents on separate machines, real network path)",
+      "observed_endpoint_hosts": [
+        "10.16.0.35"
+      ],
+      "n_traces_with_endpoints": 2,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wan_poc3": {
+      "dir": "data/raw_wan_poc3",
+      "capture": "cross_host",
+      "interface_class": "cross-host (agents on separate machines, real network path)",
+      "observed_endpoint_hosts": [
+        "10.16.0.35"
+      ],
+      "n_traces_with_endpoints": 2,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wf_interleaved": {
+      "dir": "data/raw_wf_interleaved",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 144,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "data/raw_wf_interleaved_full": {
+      "dir": "data/raw_wf_interleaved_full",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 432,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "~/autogen-xframework/data/raw": {
+      "dir": "/Users/mayureshmore/autogen-xframework/data/raw",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "127.0.0.1"
+      ],
+      "n_traces_with_endpoints": 0,
+      "evidence_source": "pcap IPs (no agent_endpoints in sidecars)",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "~/crewai-xframework/data/raw": {
+      "dir": "/Users/mayureshmore/crewai-xframework/data/raw",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "localhost"
+      ],
+      "n_traces_with_endpoints": 30,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    },
+    "~/crewai-xframework/data/raw_matched": {
+      "dir": "/Users/mayureshmore/crewai-xframework/data/raw_matched",
+      "capture": "loopback",
+      "interface_class": "lo (single host, tcpdump on loopback)",
+      "observed_endpoint_hosts": [
+        "localhost"
+      ],
+      "n_traces_with_endpoints": 39,
+      "evidence_source": "sidecar agent_endpoints",
+      "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host"
+    }
+  },
+  "results_lineage": {
+    "closed_world/": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "model_vs_logic.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_amodel",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_blogic",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_b",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "cross_deployment.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_b",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "cross_framework.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_langgraph",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "runtime_traffic_diagnostic.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_langgraph",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "c5_cross_network.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_wan",
+          "capture": "cross_host"
+        }
+      ],
+      "capture_summary": "cross_host (includes a real network path)"
+    },
+    "defense/defense_live.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_defense_rate",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_defense_pad",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "open_world/": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "open_world_background.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_background",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "offtheshelf_detection.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_background",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "offtheshelf_topology.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "offtheshelf_fingerprint.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "framework_id.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_b",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_langgraph",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "framework_id_control.json": {
+      "sources": [
+        {
+          "dir": "data/raw_interleaved_a",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_interleaved_b",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "confound_control.json": {
+      "sources": [
+        {
+          "dir": "data/raw_interleaved_a",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_interleaved_b",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "cross_instance_transfer.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_offtheshelf_inst2",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "cross_framework_autogen.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "~/autogen-xframework/data/raw",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "agentic_detection.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "~/autogen-xframework/data/raw",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "mixing_degradation.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_background",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "crewai_detection.json": {
+      "sources": [
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "~/crewai-xframework/data/raw",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "crewai_matched_detection.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "~/crewai-xframework/data/raw_matched",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    },
+    "group_bootstrap_check.json": {
+      "sources": [
+        {
+          "dir": "data/raw",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_offtheshelf",
+          "capture": "loopback"
+        },
+        {
+          "dir": "data/raw_offtheshelf_inst2",
+          "capture": "loopback"
+        }
+      ],
+      "capture_summary": "loopback (single host)"
+    }
+  },
+  "results_with_cross_host_capture": [
+    "c5_cross_network.json"
+  ],
+  "headline": "Every result is LOOPBACK-captured except ['c5_cross_network.json'] \u2014 the cross-host/WAN evidence in the corpus is C5 (data/raw_wan, endpoints on a routable host).",
+  "flags": [
+    {
+      "severity": "stale-config",
+      "what": "configs/testbed_wan.yaml declares `interface: en0`, but docs/C5_WAN_RUNBOOK.md states the C5 capture is taken POST-DECAPSULATION on the VPN tunnel interface `utun8`, and that en0 is explicitly NOT used for capture.",
+      "evidence": "data/raw_wan endpoints are ['10.16.0.35'] (routable \u2192 cross-host), consistent with the utun8 tunnel path, not with en0.",
+      "action": "Config is stale/misleading for reproduction; the runbook (utun8) is the truth. Author's call whether to correct the YAML."
+    }
+  ],
+  "additive_note": "Written as a standalone manifest rather than injected into each canonical result JSON, which would break the byte-identical invariant on the frozen results. capture_interface_for() is importable so newly-written results can embed the field inline; regenerating the canonical set to inline it is the author's call."
+}
