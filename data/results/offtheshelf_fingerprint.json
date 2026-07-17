@@ -20,8 +20,8 @@
       ],
       "chance": 0.16666666666666666,
       "macro_f1": 0.9062072062933414,
-      "ci_lo": 0.8480589400641058,
-      "ci_hi": 0.9543559939307166,
+      "ci_lo": 0.8523912434807863,
+      "ci_hi": 0.9556333079720464,
       "accuracy": 0.97825311942959,
       "is_headline": true,
       "note": "HEADLINE behavioral result \u2014 6 roles separated from per-agent traffic shape."

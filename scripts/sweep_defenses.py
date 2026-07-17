@@ -216,6 +216,8 @@ def eval_fixed_attacker(X_undef, X_def, y, groups):
         "accuracy": float(accuracy_score(oof_t, oof_p)),
         "ci_low": ci["macro_f1_ci_lo"],
         "ci_high": ci["macro_f1_ci_hi"],
+        "ci_method": ci["ci_method"],          # cluster (prompt_group) bootstrap — project convention
+        "ci_n_clusters": ci.get("n_clusters"),
     }
 
 

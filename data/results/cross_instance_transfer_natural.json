@@ -49,8 +49,8 @@
   "role_transfer": {
     "inst1_to_inst2": {
       "macro_f1": 0.7439465296608153,
-      "ci_lo": 0.7071041589315011,
-      "ci_hi": 0.7734886249528948,
+      "ci_lo": 0.7254340073135233,
+      "ci_hi": 0.760788592560087,
       "accuracy": 0.9088319088319088,
       "n_test": 351,
       "chance": 0.16666666666666666,
@@ -61,12 +61,14 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 102
     },
     "inst2_to_inst1": {
       "macro_f1": 0.5943624977850873,
-      "ci_lo": 0.5567098773698832,
-      "ci_hi": 0.6386150908907865,
+      "ci_lo": 0.5755328328410669,
+      "ci_hi": 0.617453942509451,
       "accuracy": 0.9261477045908184,
       "n_test": 501,
       "chance": 0.16666666666666666,
@@ -77,7 +79,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.5943624977850873
   },
@@ -90,8 +94,8 @@
     ],
     "inst1_to_inst2": {
       "macro_f1": 0.9419484173788429,
-      "ci_lo": 0.9134639011224306,
-      "ci_hi": 0.9665993032639163,
+      "ci_lo": 0.9043255243299819,
+      "ci_hi": 0.9739656787370133,
       "accuracy": 0.9411764705882353,
       "n_test": 306,
       "chance": 0.3333333333333333,
@@ -99,7 +103,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 102
     },
     "inst2_to_inst1": {
       "macro_f1": 1.0,
@@ -112,7 +118,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.9419484173788429,
     "verdict": "DEPLOYABLE ATTACK (\u22650.70, CI clear of chance)"
@@ -167,8 +175,8 @@
     "n_features_dropped": 19,
     "inst1_to_inst2": {
       "macro_f1": 0.9419675562532706,
-      "ci_lo": 0.9147848474796416,
-      "ci_hi": 0.9672954950503349,
+      "ci_lo": 0.9064517032538332,
+      "ci_hi": 0.9740880503144654,
       "accuracy": 0.9411764705882353,
       "n_test": 306,
       "chance": 0.3333333333333333,
@@ -176,11 +184,13 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 102
     },
     "inst2_to_inst1": {
       "macro_f1": 0.9955553580159119,
-      "ci_lo": 0.9887027759299111,
+      "ci_lo": 0.9888858016115588,
       "ci_hi": 1.0,
       "accuracy": 0.9955555555555555,
       "n_test": 450,
@@ -189,7 +199,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.9419675562532706,
     "verdict": "DEPLOYABLE ATTACK (\u22650.70, CI clear of chance)",
@@ -199,27 +211,31 @@
     "caveat": "PARTLY STRUCTURAL \u2014 hubs carry more traffic than leaves, so this rides on connection volume (like topology), not subtle per-agent behaviour. The behavioural headline is the multi-role transfer above.",
     "inst1_to_inst2": {
       "macro_f1": 0.8258928571428572,
-      "ci_lo": 0.7706856553597049,
-      "ci_hi": 0.8775683404987447,
+      "ci_lo": 0.7574425268427639,
+      "ci_hi": 0.8843537414965986,
       "accuracy": 0.8974358974358975,
       "n_test": 351,
       "chance": 0.5,
       "test_classes": [
         "coordinator",
         "specialist"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 102
     },
     "inst2_to_inst1": {
       "macro_f1": 0.8331668331668332,
-      "ci_lo": 0.766542404473439,
-      "ci_hi": 0.8924892703862661,
+      "ci_lo": 0.7542281582173397,
+      "ci_hi": 0.896704624428703,
       "accuracy": 0.9520958083832335,
       "n_test": 501,
       "chance": 0.5,
       "test_classes": [
         "coordinator",
         "specialist"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     }
   },
   "specialist_distribution_check": {

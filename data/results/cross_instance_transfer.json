@@ -47,8 +47,8 @@
   "role_transfer": {
     "inst1_to_inst2": {
       "macro_f1": 0.6821539480875641,
-      "ci_lo": 0.6339109071704738,
-      "ci_hi": 0.7227039492714128,
+      "ci_lo": 0.6454873745675883,
+      "ci_hi": 0.7133931663321762,
       "accuracy": 0.8213058419243986,
       "n_test": 291,
       "chance": 0.16666666666666666,
@@ -59,12 +59,14 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 82
     },
     "inst2_to_inst1": {
       "macro_f1": 0.6051366684043133,
-      "ci_lo": 0.554841271238955,
-      "ci_hi": 0.6569139184453717,
+      "ci_lo": 0.5638601808673686,
+      "ci_hi": 0.6483672212535199,
       "accuracy": 0.9201596806387226,
       "n_test": 501,
       "chance": 0.16666666666666666,
@@ -75,7 +77,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.6051366684043133
   },
@@ -88,8 +92,8 @@
     ],
     "inst1_to_inst2": {
       "macro_f1": 0.8664663774972494,
-      "ci_lo": 0.8205752743002208,
-      "ci_hi": 0.9072320170654127,
+      "ci_lo": 0.8079796066919659,
+      "ci_hi": 0.9157855577851222,
       "accuracy": 0.8658536585365854,
       "n_test": 246,
       "chance": 0.3333333333333333,
@@ -97,11 +101,13 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 82
     },
     "inst2_to_inst1": {
       "macro_f1": 0.9955553580159119,
-      "ci_lo": 0.9884528118076769,
+      "ci_lo": 0.9888858016115588,
       "ci_hi": 1.0,
       "accuracy": 0.9955555555555555,
       "n_test": 450,
@@ -110,7 +116,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.8664663774972494,
     "verdict": "DEPLOYABLE ATTACK (\u22650.70, CI clear of chance)"
@@ -165,8 +173,8 @@
     "n_features_dropped": 19,
     "inst1_to_inst2": {
       "macro_f1": 0.8396112596388301,
-      "ci_lo": 0.791721967502859,
-      "ci_hi": 0.8839468312731993,
+      "ci_lo": 0.7774361755970952,
+      "ci_hi": 0.894251102244793,
       "accuracy": 0.8414634146341463,
       "n_test": 246,
       "chance": 0.3333333333333333,
@@ -174,11 +182,13 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 82
     },
     "inst2_to_inst1": {
       "macro_f1": 0.9955553580159119,
-      "ci_lo": 0.9887853845744627,
+      "ci_lo": 0.9888858016115588,
       "ci_hi": 1.0,
       "accuracy": 0.9955555555555555,
       "n_test": 450,
@@ -187,7 +197,9 @@
         "mcp",
         "orchestrator",
         "planner"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.8396112596388301,
     "verdict": "DEPLOYABLE ATTACK (\u22650.70, CI clear of chance)",
@@ -197,27 +209,31 @@
     "caveat": "PARTLY STRUCTURAL \u2014 hubs carry more traffic than leaves, so this rides on connection volume (like topology), not subtle per-agent behaviour. The behavioural headline is the multi-role transfer above.",
     "inst1_to_inst2": {
       "macro_f1": 0.7578104993597952,
-      "ci_lo": 0.6962339310273219,
-      "ci_hi": 0.8134241205828809,
+      "ci_lo": 0.6899357611349773,
+      "ci_hi": 0.8105263157894737,
       "accuracy": 0.8213058419243986,
       "n_test": 291,
       "chance": 0.5,
       "test_classes": [
         "coordinator",
         "specialist"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 82
     },
     "inst2_to_inst1": {
       "macro_f1": 0.8752048454973321,
-      "ci_lo": 0.8160587437145821,
-      "ci_hi": 0.9261269956166807,
+      "ci_lo": 0.8203463203463204,
+      "ci_hi": 0.921001492702344,
       "accuracy": 0.9620758483033932,
       "n_test": 501,
       "chance": 0.5,
       "test_classes": [
         "coordinator",
         "specialist"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     }
   },
   "specialist_distribution_check": {

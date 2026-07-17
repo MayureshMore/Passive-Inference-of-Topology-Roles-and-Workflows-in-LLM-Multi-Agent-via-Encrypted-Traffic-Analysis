@@ -79,6 +79,15 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _canon_host(host: str) -> str:
+    """Canonicalize a host so the DISTINCT-host count is not fooled by aliases. All loopback
+    spellings (localhost / 127.0.0.1 / ::1) collapse to one token — otherwise a sidecar that says
+    'localhost' plus a pcap that says '127.0.0.1' would look like two hosts and wrongly read as
+    cross-host. Routable addresses are returned as-is."""
+    h = host.strip().lower()
+    return "127.0.0.1" if _is_loopback(h) else h
+
+
 def observed_hosts(raw_dir: Path) -> tuple[list[str], int]:
     """Endpoint hosts actually present in a capture dir's sidecars (the evidence)."""
     hosts: set[str] = set()
@@ -102,48 +111,86 @@ def observed_hosts(raw_dir: Path) -> tuple[list[str], int]:
     return sorted(hosts), n
 
 
-def hosts_from_pcap(raw_dir: Path) -> list[str]:
-    """Fallback evidence: read the IPs off an actual pcap. Some collectors (e.g. the AutoGen gRPC
-    deployment) label roles by port and never write agent_endpoints, so the sidecars carry no host —
-    but the packets always do. This keeps the manifest evidence-based for EVERY capture dir."""
+def hosts_from_pcap(raw_dir: Path, max_pcaps: int = 8, per_cap: int = 200) -> list[str]:
+    """PRIMARY host evidence: read the IPs off the actual packets. This is authoritative for the
+    cross-vs-single-host decision because the pcap records EVERY host that exchanged a frame —
+    including the driving client / orchestrator, which the sidecar `agent_endpoints` registry omits
+    (it lists only *served* agents). It also covers collectors that label roles by port and never
+    write agent_endpoints at all (e.g. the AutoGen gRPC deployment). Sampled across several pcaps so a
+    single short trace cannot hide a host."""
     import re
     import subprocess
     pcaps = sorted(raw_dir.glob("*.pcap"))
     if not pcaps:
         return []
-    try:
-        out = subprocess.run(["tcpdump", "-r", str(pcaps[0]), "-nn", "-c", "50"],
-                             capture_output=True, text=True, timeout=30).stdout
-    except Exception:
-        return []
-    ips = set(re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){3})\.\d+\b", out))
+    step = max(1, len(pcaps) // max_pcaps)
+    sample = pcaps[::step][:max_pcaps]
+    ips: set[str] = set()
+    for p in sample:
+        try:
+            out = subprocess.run(["tcpdump", "-r", str(p), "-nn", "-c", str(per_cap)],
+                                 capture_output=True, text=True, timeout=30).stdout
+        except Exception:
+            continue
+        ips |= set(re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){3})\.\d+\b", out))
     return sorted(ips)
 
 
 def capture_interface_for(raw_dir: Path) -> dict:
-    """Derive {loopback|cross_host} for one capture dir. Evidence order: sidecar agent_endpoints,
-    then the pcap's own IPs. Reusable by any script that wants to embed the field inline in a
-    freshly-written result."""
+    """Derive {single_host | cross_host} for one capture dir, plus whether the *served agents* are
+    co-located. Reusable by any script that wants to embed the field inline in a freshly-written
+    result.
+
+    CORRECTED RULE (the point of this function): a capture is CROSS-HOST iff >=2 DISTINCT hosts
+    actually exchanged packets. All endpoints on ONE host — whether loopback (127.0.0.1) or a single
+    routable address — is SINGLE-host. A routable IP does not by itself make a capture cross-host; two
+    machines exchanging frames does. (The previous rule called any routable endpoint "cross-host",
+    which mislabelled a single-routable-host capture as "agents on separate machines".)
+
+    Host inventory is taken from the PACKETS (authoritative — every host that sent/received a frame),
+    unioned with the sidecar registry. The pcap matters because the sidecar `agent_endpoints` lists
+    only the *served* agents and omits the driving client/orchestrator; on the C5 WAN corpus the
+    orchestrator runs on the capture host (the Mac) and only appears in the packets, never the
+    registry. Served-agent co-location is reported separately so a cross-host CAPTURE is never misread
+    as a geo-distributed agent MESH."""
     raw_dir = Path(os.path.expanduser(str(raw_dir)))
     if not raw_dir.exists():
         return {"dir": str(raw_dir), "status": "absent"}
-    hosts, n = observed_hosts(raw_dir)
-    source = "sidecar agent_endpoints"
-    if not hosts:
-        hosts, n, source = hosts_from_pcap(raw_dir), 0, "pcap IPs (no agent_endpoints in sidecars)"
-    if not hosts:
+    served_raw, n = observed_hosts(raw_dir)          # served-agent hosts, from the sidecar registry
+    wire_raw = hosts_from_pcap(raw_dir)              # every host on the wire, from the packets
+    served = sorted({_canon_host(h) for h in served_raw})
+    wire = sorted({_canon_host(h) for h in wire_raw})
+    inventory = sorted(set(served) | set(wire))     # union, canonicalized (loopback aliases collapsed)
+    if not inventory:
         return {"dir": str(raw_dir), "status": "no_endpoint_evidence", "n_traces_with_endpoints": 0}
-    all_lo = all(_is_loopback(h) for h in hosts)
-    return {
+    n_hosts = len(inventory)
+    all_lo = all(_is_loopback(h) for h in inventory)
+    cross = n_hosts >= 2                             # <-- the corrected rule
+    agents_colocated = len(served) <= 1             # all served agents on one host?
+    out = {
         "dir": str(raw_dir),
-        "capture": "loopback" if all_lo else "cross_host",
-        "interface_class": "lo (single host, tcpdump on loopback)" if all_lo
-                           else "cross-host (agents on separate machines, real network path)",
-        "observed_endpoint_hosts": hosts,
+        "capture": "cross_host" if cross else "single_host",
+        "n_distinct_hosts": n_hosts,
+        "distinct_hosts": inventory,
+        "served_agent_hosts": served,               # from sidecar agent_endpoints (served agents only)
+        "wire_hosts": wire,                         # from the pcap packets (includes the client)
+        "agents_colocated": agents_colocated,
         "n_traces_with_endpoints": n,
-        "evidence_source": source,
-        "derivation": "all observed hosts loopback -> loopback; any routable host -> cross_host",
+        "evidence_source": "pcap packets (authoritative for host count) ∪ sidecar agent_endpoints",
+        "derivation": ">=2 distinct hosts exchanged packets -> cross_host; all endpoints on ONE host "
+                      "(loopback OR a single routable addr) -> single_host. Loopback aliases collapsed.",
     }
+    if cross:
+        colo = (" — but the SERVED agents are CO-LOCATED on a single host, so this is a real network "
+                "path with a remote client/orchestrator, NOT a geo-distributed agent mesh"
+                if agents_colocated else " — served agents span multiple hosts")
+        out["interface_class"] = (
+            f"cross-host capture: {n_hosts} machines exchanged packets on a real network path{colo}")
+    else:
+        out["single_host_kind"] = "loopback" if all_lo else "routable"
+        out["interface_class"] = ("lo (single host, tcpdump on loopback)" if all_lo
+                                  else "single routable host (one machine, not loopback)")
+    return out
 
 
 def declared_interfaces(cfg_dir: Path) -> dict:
@@ -170,7 +217,7 @@ def main(a: argparse.Namespace) -> None:
 
     declared = declared_interfaces(root / "configs")
 
-    # Flags: config-vs-evidence disagreements worth a human decision.
+    # Flags: config-vs-evidence disagreements, and honest scope notes, worth a human's eye.
     flags = []
     wan = per_dir.get("data/raw_wan", {})
     if wan.get("capture") == "cross_host" and declared.get("testbed_wan.yaml") == "en0":
@@ -179,10 +226,24 @@ def main(a: argparse.Namespace) -> None:
             "what": "configs/testbed_wan.yaml declares `interface: en0`, but docs/C5_WAN_RUNBOOK.md "
                     "states the C5 capture is taken POST-DECAPSULATION on the VPN tunnel interface "
                     "`utun8`, and that en0 is explicitly NOT used for capture.",
-            "evidence": f"data/raw_wan endpoints are {wan.get('observed_endpoint_hosts')} (routable → "
+            "evidence": f"data/raw_wan hosts are {wan.get('distinct_hosts')} (two machines on the wire → "
                         f"cross-host), consistent with the utun8 tunnel path, not with en0.",
             "action": "Config is stale/misleading for reproduction; the runbook (utun8) is the truth. "
                       "Author's call whether to correct the YAML.",
+        })
+    # Scope note: a cross-host CAPTURE whose served agents are co-located is a real network path with a
+    # remote client, not a geo-distributed mesh. State it so "cross-host" is not over-read.
+    if wan.get("capture") == "cross_host" and wan.get("agents_colocated"):
+        flags.append({
+            "severity": "scope-note",
+            "what": "C5 (data/raw_wan) is a cross-host capture on a real WAN/VPN path, but the SERVED "
+                    "agents are co-located on one host. The orchestrator runs on the capture host (the "
+                    "Mac client) and reaches the specialists on the remote VM; specialist↔specialist "
+                    "hops do not cross the wire.",
+            "evidence": f"wire hosts (packets) = {wan.get('wire_hosts')}; served-agent hosts (registry) "
+                        f"= {wan.get('served_agent_hosts')}. Every trace shows exactly one host-pair.",
+            "action": "Report C5 as 'role classification survives a real WAN path for the orchestrator→"
+                      "specialist legs', NOT as a fully geo-distributed 4-agent deployment.",
         })
 
     lineage = {}
@@ -196,24 +257,27 @@ def main(a: argparse.Namespace) -> None:
         lineage[res] = {
             "sources": entries,
             "capture_summary": ("cross_host (includes a real network path)" if "cross_host" in caps
-                                else "loopback (single host)" if caps == {"loopback"}
+                                else "single_host (one machine; loopback)" if caps == {"single_host"}
                                 else "mixed/unknown — see sources"),
         }
 
     cross = [r for r, v in lineage.items() if v["capture_summary"].startswith("cross_host")]
     out = {
-        "task": "C1 support — machine-checkable capture-interface provenance (loopback vs cross-host)",
-        "why": "The threat-model relabel turns on which results are loopback captures vs a real "
+        "task": "C1 support — machine-checkable capture-interface provenance (single-host vs cross-host)",
+        "why": "The threat-model relabel turns on which results are single-host captures vs a real "
                "network path. This makes that fact checkable from the traces rather than from prose.",
-        "derivation": "Per capture dir, read every sidecar's agent_endpoints: all-loopback hosts → "
-                      "loopback; any routable host → cross_host. Evidence (the observed hosts) is "
-                      "recorded so the label cannot drift from the data.",
+        "derivation": "Per capture dir, take the DISTINCT hosts that exchanged packets (pcap, "
+                      "authoritative) unioned with the sidecar agent_endpoints, with loopback aliases "
+                      "collapsed: >=2 distinct hosts → cross_host; all endpoints on ONE host (loopback "
+                      "or a single routable addr) → single_host. Served-agent co-location is reported "
+                      "separately so a cross-host capture is not mistaken for a distributed agent mesh.",
         "declared_interface_in_configs": declared,
         "data_directories": per_dir,
         "results_lineage": lineage,
         "results_with_cross_host_capture": cross,
-        "headline": (f"Every result is LOOPBACK-captured except {cross} — the cross-host/WAN evidence "
-                     f"in the corpus is C5 (data/raw_wan, endpoints on a routable host)."
+        "headline": (f"Every result is SINGLE-HOST-captured (one machine, loopback) except {cross} — the "
+                     f"cross-host/WAN evidence in the corpus is C5 (data/raw_wan): two machines on the "
+                     f"wire, but the served agents are co-located on the remote VM."
                      if cross else "No cross-host capture detected."),
         "flags": flags,
         "additive_note": "Written as a standalone manifest rather than injected into each canonical "
@@ -228,11 +292,13 @@ def main(a: argparse.Namespace) -> None:
     (out_dir / "capture_interface_manifest.json").write_text(json.dumps(out, indent=2))
 
     print("\n" + "=" * 78)
-    print("  C1 — CAPTURE-INTERFACE PROVENANCE (derived from sidecar endpoints)")
+    print("  C1 — CAPTURE-INTERFACE PROVENANCE (>=2 hosts on the wire = cross-host)")
     print("=" * 78)
     for k, v in per_dir.items():
         if v.get("capture"):
-            print(f"  {k:42s} {v['capture']:10s} hosts={v['observed_endpoint_hosts']}")
+            colo = "" if v["capture"] == "single_host" else (
+                "  agents_colocated" if v.get("agents_colocated") else "  agents_distributed")
+            print(f"  {k:42s} {v['capture']:11s} hosts={v['distinct_hosts']}{colo}")
     print("-" * 78)
     print(f"  cross-host results: {cross if cross else 'none'}")
     for f in flags:

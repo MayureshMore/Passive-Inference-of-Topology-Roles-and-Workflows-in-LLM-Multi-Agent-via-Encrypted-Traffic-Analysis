@@ -12,13 +12,21 @@ via `bash scripts/reproduce.sh --full-suite` (RF/GBT seed-fixed; deep models opt
 > confounded (the raw field is retained in the JSON, marked `latency_overhead_note`).
 > (3) topology/parallelism are a **structural baseline** (the connection graph is readable
 > from IP headers without ML) — reported for completeness, not as the attack contribution.
-> (4) **Capture provenance (machine-checkable).** Every result is derived from a **loopback**
-> capture (all agents on one host, tcpdump on `lo0`) **except §4/C5**, whose traces are genuinely
-> **cross-host** (agents on a remote VM; endpoints on a routable address, captured post-decapsulation
-> on the VPN tunnel). This is derived from the traces themselves — each capture's endpoint hosts (and,
-> where absent, the pcap's own IPs) — not asserted in prose:
-> `data/results/capture_interface_manifest.json`. (5) Headline CIs use a **cluster (group) bootstrap**
-> — see the C4 notes in §1 and §9a.
+> (4) **Capture provenance (machine-checkable).** Every result is derived from a **single-host**
+> capture (all agents on one host, tcpdump on `lo0`) **except §4/C5**. C5 is a genuine **cross-host**
+> capture on a real WAN/VPN path — but the *served* agents are **co-located** on the remote VM: the
+> orchestrator runs on the capture host (the US Mac client) and reaches the three specialists
+> (executor/retriever/validator) on the India VM, so **only the orchestrator→specialist legs cross the
+> wire** (every trace is a single host-pair `192.168.3.5 ↔ 10.16.0.35`, zero VM-internal flows; port
+> 8000 is never dialed because the orchestrator is the client). It is a real network path with a remote
+> orchestrator, **not a geo-distributed 4-agent mesh**, and the C5 role task is therefore **3-way**.
+> Derived from the packets themselves — **≥2 distinct hosts on the wire ⇒ cross-host** (a single host,
+> loopback *or* routable, is single-host) — not asserted in prose:
+> `data/results/capture_interface_manifest.json`. (5) **Every reported CI uses a cluster (group)
+> bootstrap** — resampling whole clusters (prompt_group, or trip for role transfer), 2000 resamples,
+> seed 42, percentile; results carry a machine-checkable `ci_method: "group_bootstrap"` field. The
+> i.i.d. bootstrap (which treats correlated same-cluster flows as independent) is over-confident and is
+> **no longer used for any reported interval** — see the C4 notes in §1 and §9a.
 
 ---
 
@@ -112,6 +120,22 @@ The attack **works on real WAN traffic when trained in-domain**. A LAN-trained m
 not transfer** to WAN conditions (workflow 0.196 ≈ chance) — absolute timing shifts across
 networks, so the attacker must train under the target network's conditions.
 
+> **What C5 actually is (from the packets, not the config).** The orchestrator runs on the US
+> capture host (the Mac client, `192.168.3.5`); the three specialists — executor/retriever/validator —
+> run on the India VM (`10.16.0.35:8001-8003`). tcpdump captures post-decapsulation on the Mac's `utun8`
+> tunnel, so **every one of the 595 traces is a single host-pair `192.168.3.5 ↔ 10.16.0.35` with zero
+> VM-internal flows**, and port 8000 is never dialed (nothing connects *to* the orchestrator — it is the
+> client that initiates). So C5 is a genuine cross-host capture on a real WAN/VPN path, but with a
+> **remote orchestrator over co-located specialists**, not a geo-distributed 4-agent mesh: only the
+> orchestrator→specialist legs cross the wire. The **role task is 3-way** (chance 0.33,
+> executor/retriever/validator; the orchestrator never appears as a captured role), and the WAN role
+> **n = 1195** is the pooled per-flow specialist vectors over those 595 traces (≈2.0 classifiable
+> specialist flows/trace, vs the LAN's ≈2.9 — the capture sees the orchestrator→specialist calls, not
+> the full four-agent structure). The sidecar `agent_endpoints` lists orchestrator=`10.16.0.35:8000` as
+> a nominal registry entry, but no packet is ever sent there — the packets are ground truth. Derivation
+> is machine-checkable in `data/results/capture_interface_manifest.json`
+> (`capture: cross_host`, `agents_colocated: true`).
+
 ---
 
 ## 5. Live C4 defenses (workflow attack, real defended captures)
@@ -122,7 +146,7 @@ Fixed attacker trained on undefended traffic, applied to real defended captures
 | Defense | macro-F1 [95% CI] | Accuracy | Above-chance F1 retained | Byte overhead |
 |---|---|---|---|---|
 | none | 0.656 [0.62, 0.69] | 0.657 | — | 0% |
-| rate | 0.531 [0.49, 0.57] | 0.530 | **69%** | +35% |
+| rate | 0.531 [0.48, 0.57] | 0.530 | **69%** | +35% |
 | pad | 0.544 [0.50, 0.58] | 0.540 | **72%** | +31% |
 
 Defenses **degrade but don't defeat** the attack — ~70% of above-chance signal survives at
@@ -252,7 +276,7 @@ with the port used only for the *label*, never as a feature. GBT, group-safe CV 
 
 | Role task on a2a_mcp | Chance | macro-F1 [95% CI] | n |
 |---|---|---|---|
-| **6-way** (mcp / orchestrator / planner / air / hotel / car) — *the behavioral result* | 0.167 | **0.906 [0.848, 0.954]** | 501 |
+| **6-way** (mcp / orchestrator / planner / air / hotel / car) — *the behavioral result* | 0.167 | **0.906 [0.852, 0.956]** | 501 |
 | coordinator vs specialist (2-way) — *partly structural (see note)* | 0.50 | 1.000 [1.000, 1.000] | 501 |
 
 **The 6-way 0.906 is the headline: agent role is recovered far above chance on an
@@ -322,7 +346,7 @@ use the **same model** (`llama3.2:3b`), same call logic, and identical condition
 | A↔C (asyncio vs LangGraph), balanced 2-way | macro-F1 [95% CI] | chance |
 |---|---|---|
 | **separate-session (confounded)** | separability **0.997** | 0.50 |
-| **same-session interleaved (controlled)** | **0.460 [0.381, 0.542]** | 0.50 |
+| **same-session interleaved (controlled)** | **0.460 [0.370, 0.573]** | 0.50 |
 | controlled, timing also ablated | 0.383 | 0.50 |
 
 **Verdict: the A↔C fingerprint COLLAPSES to chance under the control** (0.997 → 0.46; CI straddles
@@ -365,9 +389,9 @@ to the committed (batch-collected) baselines. `data/results/confound_control.jso
 
 | Core task | committed (batched) | same-session interleaved (controlled) | Δ | verdict |
 |---|---|---|---|---|
-| **workflow** | 0.708 [0.672, 0.743] | **0.651 [0.616, 0.697]** | −0.06 | **SURVIVES** (CI overlap; star-only 0.69 corroborates) |
-| **role** | 0.864 [0.847, 0.879] | **0.886 [0.853, 0.903]** | +0.02 | **SURVIVES** |
-| **topology** | 0.995 [0.988, 1.000] | **1.000 [1.000, 1.000]** | +0.01 | **SURVIVES** |
+| **workflow** | 0.708 [0.665, 0.745] | **0.651 [0.602, 0.708]** | −0.06 | **SURVIVES** (CI overlap; star-only 0.69 corroborates) |
+| **role** | 0.864 [0.847, 0.881] | **0.886 [0.763, 0.971]** | +0.02 | **SURVIVES** |
+| **topology** | 0.995 [0.989, 1.000] | **1.000 [0.667, 1.000]** | +0.01 | **SURVIVES** |
 | **parallelism** | 0.989 [0.979, 0.996] | **1.000 [1.000, 1.000]** | +0.01 | **SURVIVES** |
 | framework-ID (A↔C) | 0.997 | **0.46** | −0.51 | COLLAPSES → demoted (§8.1) |
 
@@ -420,8 +444,8 @@ natural in both instances. Cross-instance transfer, both directions:
 
 | Direction | 3-way coordinator macro-F1 [95% CI] | chance |
 |---|---|---|
-| train inst-1 → test inst-2 | **0.866 [0.821, 0.907]** | 0.333 |
-| train inst-2 → test inst-1 | 0.996 [0.988, 1.000] | 0.333 |
+| train inst-1 → test inst-2 | **0.866 [0.808, 0.916]** | 0.333 |
+| train inst-2 → test inst-1 | 0.996 [0.989, 1.000] | 0.333 |
 
 **Verdict (§4): DEPLOYABLE ATTACK** — weaker direction **0.866**, **group-bootstrap CI [0.808, 0.916]**
 far clear of chance, above the ≥0.70 bar. Train on your own copy of a2a_mcp, read the coordinator roles
@@ -438,7 +462,7 @@ gave 0.912; the number is stable as instance-2 grows.) This is the paper's clean
 **shape-only** feature set (16/35 dims: per-packet size shape, IAT/duration/gap timing, burst-duration
 shape, and ratios — *dropping* all 19 raw count/byte-magnitude dims: packet/byte totals, cumulative-byte
 trajectory, burst byte magnitudes, and event counts) barely moves it: weaker direction **0.840
-[0.792, 0.884]**, still DEPLOYABLE and far above the ≥0.70 bar (`coordinator_shape_only_ablation`). Unlike
+[0.777, 0.894]**, still DEPLOYABLE and far above the ≥0.70 bar (`coordinator_shape_only_ablation`). Unlike
 the framework-ID timing ablation, where removing the signal collapsed it (0.46→0.38), removing volume
 here costs only 0.026 — the coordinator layer is recovered from per-agent traffic **shape/timing**, not
 the connection-volume signal already demoted to a topology baseline.
@@ -453,8 +477,8 @@ sabotaging the planner on other destinations). This reached air/hotel/car = 15/1
 
 | Direction | 6-way macro-F1 [95% CI] | chance |
 |---|---|---|
-| train inst-1 → test inst-2 | 0.682 [0.634, 0.723] | 0.167 |
-| train inst-2 → test inst-1 | **0.605 [0.555, 0.657]** | 0.167 |
+| train inst-1 → test inst-2 | 0.682 [0.645, 0.713] | 0.167 |
+| train inst-2 → test inst-1 | **0.605 [0.564, 0.648]** | 0.167 |
 
 **Verdict (§4): PARTIAL** — weaker direction **0.605** (0.40–0.70), well above the 0.167 chance line
 but below the 0.70 deployable bar. **We report the band the number lands in, not the one we hoped for.**
@@ -499,7 +523,7 @@ cross-instance transfer is **genuinely PARTIAL (~0.59), robust to the driver con
 gap owed to legitimate cross-instance independence. (The coordinator layer in the same natural run
 **corroborates §9a even more strongly: weaker 0.942, shape-only 0.942 — DEPLOYABLE**.)
 
-**Coordinator-vs-specialist (2-way):** weaker direction **0.758 [0.696, 0.813]**, stronger 0.875 —
+**Coordinator-vs-specialist (2-way):** weaker direction **0.758 [0.690, 0.811]**, stronger 0.875 —
 transfers, but flagged **partly structural** (hub-vs-leaf rides on connection volume like topology).
 
 ---
@@ -518,7 +542,7 @@ feature**). Same 35-dim per-agent representation. n = 120 (30 trips × 4 roles),
 group-safe CV. `data/results/cross_framework_autogen.json`.
 
 **(a) The attack REPLICATES on AutoGen — and it is behavioural.** 4-way role recovery
-(orchestrator/researcher/writer/reviewer) **macro-F1 0.966 [0.931, 0.992]** (chance 0.25). Under
+(orchestrator/researcher/writer/reviewer) **macro-F1 0.966 [0.928, 1.000]** (chance 0.25). Under
 the Task-1 **volume ablation** (drop all raw count/byte-magnitude dims, keep 16/35 shape+timing+
 ratio features) it is **unchanged at 0.966** — the fingerprint is per-agent *behaviour* (orchestrator
 dur ≈ 3.8 s / bytes-out-ratio 0.39 hub; writer longest response; reviewer 0.35 s one-liner), not
@@ -526,7 +550,7 @@ connection volume. The vulnerability class is **not A2A-specific**.
 
 **(b) But a trained classifier does NOT portably transfer across frameworks.** On the only shared
 label space (coordinator-vs-specialist), cross-framework transfer is **asymmetric**: AutoGen→a2a_mcp
-**0.786 [0.712, 0.851]**, but a2a_mcp→AutoGen **0.429** (a2a's HTTP/JSON-RPC coordinators don't match
+**0.786 [0.721, 0.839]**, but a2a_mcp→AutoGen **0.429** (a2a's HTTP/JSON-RPC coordinators don't match
 AutoGen's gRPC orchestrator signature → predicts all-specialist). **Weaker direction 0.429 → BOUNDED**
 (§4, no re-stamp; shape-only identical). This **bounds portability, not the vulnerability**, and is
 consistent with the paper's **implementation-specificity** thesis: every framework is fingerprintable

@@ -13,8 +13,8 @@
     "note": "THE control result \u2014 dedicated GBT on A vs C_langgraph only (asyncio vs LangGraph), same model+logic, both fully covering all 12 conditions; chance 0.5.",
     "macro_f1_full": 0.4600727513227514,
     "macro_f1_full_ci": [
-      0.38095238095238093,
-      0.5422309775917262
+      0.36984045586507225,
+      0.5733452021199638
     ],
     "macro_f1_no_timing": 0.3826954708735858,
     "n_A": 71,
@@ -25,8 +25,8 @@
   },
   "result_full_shape": {
     "macro_f1": 0.6055097052786927,
-    "macro_f1_ci_lo": 0.6041218210213122,
-    "macro_f1_ci_hi": 0.7109702966834882,
+    "macro_f1_ci_lo": 0.6011534176275566,
+    "macro_f1_ci_hi": 0.718262987012987,
     "accuracy": 0.561835075493612,
     "per_class": {
       "A": {
@@ -91,8 +91,8 @@
     "n_timing_features_dropped": 29,
     "result_no_timing": {
       "macro_f1": 0.5839280737095383,
-      "macro_f1_ci_lo": 0.5710433197663487,
-      "macro_f1_ci_hi": 0.6761243791249916,
+      "macro_f1_ci_lo": 0.5617667378283816,
+      "macro_f1_ci_hi": 0.689586838238799,
       "accuracy": 0.5188734030197445,
       "per_class": {
         "A": {

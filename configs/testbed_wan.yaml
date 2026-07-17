@@ -1,16 +1,33 @@
 # WAN testbed configuration (US-India distributed deployment)
 # Fill in actual IP addresses before using.
 #
-# NOTE — what the committed C5 corpus actually ran (data/raw_wan sidecars are the ground truth):
-# all four agents were hosted on the India VM (10.16.0.35:8000-8003) and the US MacBook was the
-# driver + capture point on the VPN tunnel. That differs from the US/India split sketched below and
-# from the runbook's "orchestrator on the Mac" narrative; the sidecars win. Kept as a template —
-# adjust to your own hosts, but capture on the tunnel iface (see `interface` below).
+# NOTE — what the committed C5 corpus ACTUALLY ran (derived from the pcaps, which are the ground
+# truth — the sidecar `agent_endpoints` registry is NOT, see below):
+#   * The ORCHESTRATOR ran on the US MacBook (192.168.3.5), which was ALSO the capture point.
+#   * The three specialists — executor:8001, retriever:8002, validator:8003 — ran on the India
+#     VM (10.16.0.35).
+#   * tcpdump captured on the Mac's utun8 tunnel, so it sees exactly the tunnel-crossing traffic:
+#     every one of the 595 traces is a single host-pair 192.168.3.5 <-> 10.16.0.35, with ZERO
+#     VM-internal (10.16.0.35 <-> 10.16.0.35) flows.
+#   * Port 8000 (orchestrator) is NEVER contacted on the wire — nothing dials the orchestrator; it
+#     is the client that initiates every call. That is the wire proof the orchestrator is the Mac
+#     driver, not a served VM agent.
+# This MATCHES the runbook's "orchestrator on the Mac calling specialists in India". An earlier note
+# here claimed "all four agents on the VM; the sidecars win" — that was WRONG: the sidecar registry
+# lists orchestrator=10.16.0.35:8000 as a nominal entry, but that endpoint carries no packets. The
+# PACKETS win. Scope: C5 is a cross-host capture on a real WAN path, but only the orchestrator->
+# specialist legs cross the wire and the specialists are co-located on one VM (no specialist<->
+# specialist WAN hops). Report it as a real network path with a remote orchestrator, NOT a fully
+# geo-distributed 4-agent mesh. The role task is 3-way (executor/retriever/validator); the
+# orchestrator never appears as a captured role. Kept as a template — adjust to your own hosts, but
+# capture on the tunnel iface (see `interface` below).
 
-orchestrator: "FILL_IN_US_HOST:8000"       # MacBook Pro M3 Max (US)
+orchestrator: "FILL_IN_US_HOST"            # MacBook Pro M3 Max (US) — the DRIVER/client; runs the
+                                           # orchestration loop locally, so it is never a served
+                                           # :8000 endpoint on the wire (it initiates, is never dialed).
 executor:     "FILL_IN_INDIA_HOST:8001"    # Dell PowerEdge R730xd (India)
 retriever:    "FILL_IN_INDIA_HOST:8002"    # Dell PowerEdge R730xd (India)
-validator:    "FILL_IN_US_HOST:8003"       # MacBook Pro M3 Max (US)
+validator:    "FILL_IN_INDIA_HOST:8003"    # Dell PowerEdge R730xd (India)
 
 # Capture interface. MUST be the VPN TUNNEL interface, not the physical LAN NIC: the US–India path
 # runs over a VPN, so traffic on the physical NIC is still encapsulated and the A2A flows are not

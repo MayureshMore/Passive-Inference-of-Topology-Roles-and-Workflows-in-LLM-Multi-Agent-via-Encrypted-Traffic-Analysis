@@ -40,8 +40,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.6573296987329147,
       "accuracy": 0.6566666666666666,
-      "ci_low": 0.6188485047075046,
-      "ci_high": 0.6923888985779191
+      "ci_low": 0.6187135390732961,
+      "ci_high": 0.6914489302640864,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -51,8 +53,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.6186560373081353,
       "accuracy": 0.6166666666666667,
-      "ci_low": 0.579293186683428,
-      "ci_high": 0.6558133942540066
+      "ci_low": 0.5752658971818573,
+      "ci_high": 0.6553031083058597,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -62,8 +66,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.6184515643464759,
       "accuracy": 0.6166666666666667,
-      "ci_low": 0.5766335388264041,
-      "ci_high": 0.6549466936701688
+      "ci_low": 0.5754267829327971,
+      "ci_high": 0.656725354900365,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -73,8 +79,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.6028072207666879,
       "accuracy": 0.6016666666666667,
-      "ci_low": 0.562426079106293,
-      "ci_high": 0.6419193409277403
+      "ci_low": 0.5563700878737101,
+      "ci_high": 0.6442465134902041,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -84,8 +92,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.5948296159430748,
       "accuracy": 0.5933333333333334,
-      "ci_low": 0.5540139819298597,
-      "ci_high": 0.6331009984655339
+      "ci_low": 0.5482052338979255,
+      "ci_high": 0.6374454467254488,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -95,8 +105,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.59118347692995,
       "accuracy": 0.59,
-      "ci_low": 0.5506456533175169,
-      "ci_high": 0.6306543855732096
+      "ci_low": 0.5452472556942786,
+      "ci_high": 0.6318835344298407,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "pad_size_sim",
@@ -106,8 +118,10 @@
       "latency_overhead": 0.0,
       "attack_macro_f1": 0.5849450434314053,
       "accuracy": 0.585,
-      "ci_low": 0.5432388618173288,
-      "ci_high": 0.6225905487888865
+      "ci_low": 0.5374361839772821,
+      "ci_high": 0.6289970084514771,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "rate_timing_sim",
@@ -117,8 +131,10 @@
       "latency_overhead": 0.06225538854638302,
       "attack_macro_f1": 0.5652590505217039,
       "accuracy": 0.5683333333333334,
-      "ci_low": 0.5247093527851318,
-      "ci_high": 0.6046081304404711
+      "ci_low": 0.5203212128935613,
+      "ci_high": 0.6058955036194223,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "rate_timing_sim",
@@ -128,8 +144,10 @@
       "latency_overhead": 0.28941156433539605,
       "attack_macro_f1": 0.5409590177226768,
       "accuracy": 0.5416666666666666,
-      "ci_low": 0.49877088522982793,
-      "ci_high": 0.5810836406667503
+      "ci_low": 0.4971101060936145,
+      "ci_high": 0.5843555448288407,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "rate_timing_sim",
@@ -139,8 +157,10 @@
       "latency_overhead": 0.7447628058889599,
       "attack_macro_f1": 0.5344096312774629,
       "accuracy": 0.535,
-      "ci_low": 0.49131502358479573,
-      "ci_high": 0.5739569712290554
+      "ci_low": 0.4903313085469604,
+      "ci_high": 0.5767107818614436,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     {
       "defense": "rate_timing_sim",
@@ -150,8 +170,10 @@
       "latency_overhead": 1.6555980435745399,
       "attack_macro_f1": 0.5400407451798097,
       "accuracy": 0.54,
-      "ci_low": 0.498946318639294,
-      "ci_high": 0.5785419017472263
+      "ci_low": 0.4970956087254031,
+      "ci_high": 0.5815239255626435,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     }
   ]
 }

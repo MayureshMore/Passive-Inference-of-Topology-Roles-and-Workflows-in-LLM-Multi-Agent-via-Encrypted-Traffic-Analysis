@@ -24,7 +24,9 @@
     "macro_f1_ci95": [
       1.0,
       1.0
-    ]
+    ],
+    "ci_method": "group_bootstrap",
+    "ci_n_clusters": 175
   },
   "shape_only_ablation": {
     "auroc": 1.0,
@@ -37,6 +39,8 @@
       1.0,
       1.0
     ],
+    "ci_method": "group_bootstrap",
+    "ci_n_clusters": 175,
     "n_features": 16,
     "features_kept": [
       "mean_sz_out",

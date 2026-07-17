@@ -72,6 +72,7 @@ def _internal_cv(proc_dir: Path, task: str) -> dict:
     return {
         "f1": f["mean"], "ci_lo": f["ci_lo"], "ci_hi": f["ci_hi"],
         "acc": res["accuracy"]["mean"], "n": len(y), "classes": sorted(set(y)),
+        "ci_method": res.get("ci_method"), "ci_n_clusters": res.get("ci_n_clusters"),
     }
 
 
@@ -88,6 +89,7 @@ def _transfer(local_dir: Path, wan_dir: Path, task: str) -> dict:
         "f1": ci["macro_f1"], "ci_lo": ci["macro_f1_ci_lo"], "ci_hi": ci["macro_f1_ci_hi"],
         "acc": ci["accuracy"], "n": len(yw),
         "train_classes": sorted(set(yl)), "test_classes": sorted(set(yw)),
+        "ci_method": ci["ci_method"], "ci_n_clusters": ci.get("n_clusters"),
     }
 
 

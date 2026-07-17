@@ -3,8 +3,8 @@
     "chance": 0.25,
     "lan_internal": {
       "f1": 0.6627483284957234,
-      "ci_lo": 0.6254038453446249,
-      "ci_hi": 0.7020069672877631,
+      "ci_lo": 0.6223922803757072,
+      "ci_hi": 0.699402973646024,
       "acc": 0.6649999999999999,
       "n": 600,
       "classes": [
@@ -12,12 +12,14 @@
         "data_analysis",
         "research_retrieval",
         "support_triage"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     "wan_internal": {
       "f1": 0.6160040816489165,
-      "ci_lo": 0.581910351888544,
-      "ci_hi": 0.6526286251271338,
+      "ci_lo": 0.5701261161614537,
+      "ci_hi": 0.665358248938953,
       "acc": 0.6168067226890755,
       "n": 595,
       "classes": [
@@ -25,12 +27,14 @@
         "data_analysis",
         "research_retrieval",
         "support_triage"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     },
     "transfer": {
       "f1": 0.19603312173235876,
-      "ci_lo": 0.16922802750169685,
-      "ci_hi": 0.22501397591520156,
+      "ci_lo": 0.16271039967195544,
+      "ci_hi": 0.23195354898084658,
       "acc": 0.292436974789916,
       "n": 595,
       "train_classes": [
@@ -44,39 +48,45 @@
         "data_analysis",
         "research_retrieval",
         "support_triage"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     }
   },
   "role": {
     "chance": 0.3333333333333333,
     "lan_internal": {
       "f1": 0.8691772755108703,
-      "ci_lo": 0.8528388965111916,
-      "ci_hi": 0.884734437958342,
+      "ci_lo": 0.8524797218688369,
+      "ci_hi": 0.8850822997578249,
       "acc": 0.8706018537568418,
       "n": 1747,
       "classes": [
         "executor",
         "retriever",
         "validator"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     "wan_internal": {
       "f1": 0.8708276498418133,
-      "ci_lo": 0.8498403220034729,
-      "ci_hi": 0.8912843750941535,
+      "ci_lo": 0.8425338826269309,
+      "ci_hi": 0.8959515349681414,
       "acc": 0.8803060078470303,
       "n": 1195,
       "classes": [
         "executor",
         "retriever",
         "validator"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     },
     "transfer": {
       "f1": 0.5057130572885135,
-      "ci_lo": 0.47927828503061637,
-      "ci_hi": 0.5301838013757972,
+      "ci_lo": 0.4764622186912916,
+      "ci_hi": 0.5332661564706048,
       "acc": 0.4887029288702929,
       "n": 1195,
       "train_classes": [
@@ -88,21 +98,25 @@
         "executor",
         "retriever",
         "validator"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     }
   },
   "parallelism": {
     "chance": 0.5,
     "lan_internal": {
       "f1": 0.9719970361470412,
-      "ci_lo": 0.9578821428169596,
-      "ci_hi": 0.985,
+      "ci_lo": 0.9586969842502704,
+      "ci_hi": 0.9848850131021921,
       "acc": 0.9749145887863342,
       "n": 600,
       "classes": [
         "parallel",
         "sequential"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     "wan_internal": {
       "f1": 1.0,
@@ -113,12 +127,14 @@
       "classes": [
         "parallel",
         "sequential"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     },
     "transfer": {
       "f1": 0.4986211123027425,
-      "ci_lo": 0.460780971661867,
-      "ci_hi": 0.5408427869340208,
+      "ci_lo": 0.454534253059022,
+      "ci_hi": 0.5445141264333462,
       "acc": 0.704201680672269,
       "n": 595,
       "train_classes": [
@@ -128,26 +144,30 @@
       "test_classes": [
         "parallel",
         "sequential"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     }
   },
   "topology": {
     "chance": 0.3333333333333333,
     "lan_internal": {
       "f1": 0.9849966130769534,
-      "ci_lo": 0.9747334630027761,
-      "ci_hi": 0.9934688961973567,
+      "ci_lo": 0.975101574070909,
+      "ci_hi": 0.9936716167284108,
       "acc": 0.9850930022537373,
       "n": 600,
       "classes": [
         "chain",
         "mesh",
         "star"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 289
     },
     "wan_internal": {
       "f1": 0.9966442267426796,
-      "ci_lo": 0.9914362161495734,
+      "ci_lo": 0.9915305269507444,
       "ci_hi": 1.0,
       "acc": 0.9966244124768551,
       "n": 595,
@@ -155,12 +175,14 @@
         "chain",
         "mesh",
         "star"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     },
     "transfer": {
       "f1": 0.5828502832728191,
-      "ci_lo": 0.5454941148387128,
-      "ci_hi": 0.6189557884783461,
+      "ci_lo": 0.5462661019652632,
+      "ci_hi": 0.6186029330649382,
       "acc": 0.6016806722689075,
       "n": 595,
       "train_classes": [
@@ -172,7 +194,9 @@
         "chain",
         "mesh",
         "star"
-      ]
+      ],
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 288
     }
   }
 }

@@ -24,8 +24,8 @@
     ],
     "chance": 0.25,
     "macro_f1": 0.9660739260739261,
-    "ci_lo": 0.930534276616198,
-    "ci_hi": 0.9918826918041371,
+    "ci_lo": 0.9281850117096019,
+    "ci_hi": 1.0,
     "accuracy": 0.9666666666666666,
     "verdict": "REPLICATES on AutoGen (\u22650.70, CI clear of chance \u2014 attack is framework-portable)"
   },
@@ -41,8 +41,8 @@
     ],
     "chance": 0.25,
     "macro_f1": 0.9660739260739261,
-    "ci_lo": 0.930534276616198,
-    "ci_hi": 0.9918826918041371,
+    "ci_lo": 0.9281850117096019,
+    "ci_hi": 1.0,
     "accuracy": 0.9666666666666666,
     "verdict": "REPLICATES on AutoGen (\u22650.70, CI clear of chance \u2014 attack is framework-portable)",
     "features_kept": [
@@ -105,19 +105,23 @@
     "abstraction": "coordinator-vs-specialist (the only label space shared by both frameworks; partly structural \u2014 hubs carry more traffic than leaves).",
     "a2a_mcp_to_autogen": {
       "macro_f1": 0.42857142857142855,
-      "ci_lo": 0.40298507462686567,
-      "ci_hi": 0.4520547945205479,
+      "ci_lo": 0.42857142857142855,
+      "ci_hi": 0.42857142857142855,
       "accuracy": 0.75,
       "n_test": 120,
-      "chance": 0.5
+      "chance": 0.5,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 25
     },
     "autogen_to_a2a_mcp": {
       "macro_f1": 0.7857616821740862,
-      "ci_lo": 0.7120458605699984,
-      "ci_hi": 0.850626238250945,
+      "ci_lo": 0.7207554555240239,
+      "ci_hi": 0.8394394326171147,
       "accuracy": 0.9421157684630739,
       "n_test": 501,
-      "chance": 0.5
+      "chance": 0.5,
+      "ci_method": "group_bootstrap",
+      "ci_n_clusters": 150
     },
     "weaker_direction_macro_f1": 0.42857142857142855,
     "asymmetry_note": "Directions are asymmetric: AutoGen\u2192a2a transfers (AutoGen's single clean coordinator generalizes to a2a's hubs), but a2a\u2192AutoGen collapses (a2a's HTTP/JSON-RPC coordinators don't match AutoGen's gRPC orchestrator signature \u2192 predicts all-specialist). Weaker direction is the headline.",
@@ -125,19 +129,23 @@
     "shape_only": {
       "a2a_mcp_to_autogen": {
         "macro_f1": 0.42857142857142855,
-        "ci_lo": 0.40298507462686567,
-        "ci_hi": 0.4520547945205479,
+        "ci_lo": 0.42857142857142855,
+        "ci_hi": 0.42857142857142855,
         "accuracy": 0.75,
         "n_test": 120,
-        "chance": 0.5
+        "chance": 0.5,
+        "ci_method": "group_bootstrap",
+        "ci_n_clusters": 25
       },
       "autogen_to_a2a_mcp": {
         "macro_f1": 0.47318611987381703,
-        "ci_lo": 0.46531483457844186,
-        "ci_hi": 0.4802904564315353,
+        "ci_lo": 0.46153846153846156,
+        "ci_hi": 0.4838709677419355,
         "accuracy": 0.8982035928143712,
         "n_test": 501,
-        "chance": 0.5
+        "chance": 0.5,
+        "ci_method": "group_bootstrap",
+        "ci_n_clusters": 150
       },
       "weaker_direction_macro_f1": 0.42857142857142855,
       "note": "volume-ablated; if the transfer holds shape-only it is not merely the hub-volume signal."
