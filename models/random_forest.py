@@ -105,8 +105,9 @@ class RFClassifier:
             split_args = (X, y_enc)
 
         fold_accs, fold_f1s, fold_precs, fold_recs = [], [], [], []
-        oof_true, oof_pred = [], []  # pooled out-of-fold preds for bootstrap CI
+        oof_true, oof_pred, oof_groups = [], [], []  # pooled out-of-fold preds (+ clusters) for CI
         cm_sum = np.zeros((len(class_names), len(class_names)), dtype=int)
+        groups_arr = np.asarray(groups) if groups is not None else None
 
         for train_idx, test_idx in cv.split(*split_args):
             X_tr, X_te = X[train_idx], X[test_idx]
@@ -122,11 +123,15 @@ class RFClassifier:
             fold_recs.append(recall_score(y_te, y_pred, average="macro", zero_division=0))
             oof_true.extend(y_te.tolist())
             oof_pred.extend(list(y_pred))
+            if groups_arr is not None:
+                oof_groups.extend(groups_arr[test_idx].tolist())
             cm_sum += confusion_matrix(y_te, y_pred, labels=list(range(len(class_names))))
 
-        # 95 % bootstrap CI on the pooled out-of-fold predictions (modest n).
+        # 95 % bootstrap CI on the pooled out-of-fold predictions. When the CV is cluster-aware
+        # (groups given) the CI must be too — resample whole clusters (project convention).
         from evaluation.stats import bootstrap_ci
-        ci = bootstrap_ci(oof_true, oof_pred, classes=list(range(len(class_names))))
+        ci = bootstrap_ci(oof_true, oof_pred, classes=list(range(len(class_names))),
+                          groups=oof_groups if groups_arr is not None else None)
 
         summary: dict[str, Any] = {
             "accuracy":         {"mean": float(np.mean(fold_accs)),  "std": float(np.std(fold_accs)),
@@ -139,6 +144,8 @@ class RFClassifier:
                 "labels": class_names,
                 "matrix": cm_sum.tolist(),
             },
+            "ci_method": ci["ci_method"],
+            "ci_n_clusters": ci["n_clusters"],
         }
         logger.info("CV results [%s]: %s", self.task, {k: v for k, v in summary.items() if k != "confusion_matrix"})
         return summary

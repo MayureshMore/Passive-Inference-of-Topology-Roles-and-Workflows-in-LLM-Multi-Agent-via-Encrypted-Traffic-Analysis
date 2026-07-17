@@ -78,23 +78,26 @@ def counts(y):
     return dict(zip(u.tolist(), c.tolist()))
 
 
-def transfer(Xtr, ytr, Xte, yte, label):
+def transfer(Xtr, ytr, Xte, yte, gte, label):
+    """gte = test-side cluster labels (trip). Several flows come from one trip, so the CI resamples
+    whole TRIPS (project convention, evaluation/stats) — an i.i.d. interval here is over-confident."""
     clf = GBTClassifier(task="role").fit(Xtr, list(ytr))
     pred = clf.predict(Xte)
     classes = sorted(set(ytr) | set(yte))
-    ci = bootstrap_ci(list(yte), list(pred), classes=classes)
+    ci = bootstrap_ci(list(yte), list(pred), classes=classes, groups=list(gte))
     chance = 1.0 / len(sorted(set(yte)))
-    logger.info("[%s] macro-F1=%.3f [%.3f,%.3f] acc=%.3f (n_test=%d, chance=%.3f)",
+    logger.info("[%s] macro-F1=%.3f [%.3f,%.3f] acc=%.3f (n_test=%d, %d trips, chance=%.3f)",
                 label, ci["macro_f1"], ci["macro_f1_ci_lo"], ci["macro_f1_ci_hi"],
-                ci["accuracy"], len(yte), chance)
+                ci["accuracy"], len(yte), ci["n_clusters"] or 0, chance)
     return {"macro_f1": ci["macro_f1"], "ci_lo": ci["macro_f1_ci_lo"], "ci_hi": ci["macro_f1_ci_hi"],
             "accuracy": ci["accuracy"], "n_test": int(len(yte)), "chance": chance,
-            "test_classes": sorted(set(yte))}
+            "test_classes": sorted(set(yte)),
+            "ci_method": ci["ci_method"], "ci_n_clusters": ci["n_clusters"]}
 
 
-def restrict(X, y, roles):
+def restrict(X, y, g, roles):
     m = np.isin(y, list(roles))
-    return X[m], y[m]
+    return X[m], y[m], np.asarray(g)[m]
 
 
 def band(mf, ci_lo, chance):
@@ -194,7 +197,7 @@ def main(args: argparse.Namespace) -> None:
     if not any(r2.glob("*.pcap")):
         raise SystemExit(f"blocked: no instance-2 pcaps at {r2} — run collect_offtheshelf_inst2.sh first")
 
-    X1, y1, _ = extract_role_samples(r1)
+    X1, y1, g1 = extract_role_samples(r1)
     X2, y2, g2 = extract_role_samples(r2)
     c1, c2 = counts(y1), counts(y2)
     logger.info("instance-1 roles: %s", c1)
@@ -205,12 +208,12 @@ def main(args: argparse.Namespace) -> None:
         raise SystemExit(f"blocked: <2 roles shared with ≥{MIN_N} samples in both instances "
                          f"(inst1={c1}, inst2={c2}). Collect more instance-2 trips.")
 
-    X1c, y1c = restrict(X1, y1, common)
-    X2c, y2c = restrict(X2, y2, common)
+    X1c, y1c, g1c = restrict(X1, y1, g1, common)
+    X2c, y2c, g2c = restrict(X2, y2, g2, common)
 
     # 6-way (whatever roles are common) — both directions.
-    f_1to2 = transfer(X1c, y1c, X2c, y2c, f"{len(common)}-way inst1→inst2")
-    f_2to1 = transfer(X2c, y2c, X1c, y1c, f"{len(common)}-way inst2→inst1")
+    f_1to2 = transfer(X1c, y1c, X2c, y2c, g2c, f"{len(common)}-way inst1→inst2")
+    f_2to1 = transfer(X2c, y2c, X1c, y1c, g1c, f"{len(common)}-way inst2→inst1")
     weak = min(f_1to2["macro_f1"], f_2to1["macro_f1"])
     weak_dir = f_1to2 if f_1to2["macro_f1"] <= f_2to1["macro_f1"] else f_2to1
     verdict = band(weak, weak_dir["ci_lo"], weak_dir["chance"])
@@ -221,9 +224,9 @@ def main(args: argparse.Namespace) -> None:
     coord_roles = [r for r in common if r in ("mcp", "orchestrator", "planner")]
     coord_out = None
     if len(coord_roles) >= 2:
-        X1k, y1k2 = restrict(X1, y1, coord_roles); X2k, y2k2 = restrict(X2, y2, coord_roles)
-        cc12 = transfer(X1k, y1k2, X2k, y2k2, f"{len(coord_roles)}-way COORD inst1→inst2")
-        cc21 = transfer(X2k, y2k2, X1k, y1k2, f"{len(coord_roles)}-way COORD inst2→inst1")
+        X1k, y1k2, g1k = restrict(X1, y1, g1, coord_roles); X2k, y2k2, g2k = restrict(X2, y2, g2, coord_roles)
+        cc12 = transfer(X1k, y1k2, X2k, y2k2, g2k, f"{len(coord_roles)}-way COORD inst1→inst2")
+        cc21 = transfer(X2k, y2k2, X1k, y1k2, g1k, f"{len(coord_roles)}-way COORD inst2→inst1")
         cweak = min(cc12["macro_f1"], cc21["macro_f1"])
         cwd = cc12 if cc12["macro_f1"] <= cc21["macro_f1"] else cc21
         coord_out = {
@@ -242,10 +245,10 @@ def main(args: argparse.Namespace) -> None:
     # and qualify "deployable". Number reported as-is either way.
     shape_out = None
     if coord_out is not None:
-        X1k, y1k2 = restrict(X1, y1, coord_roles); X2k, y2k2 = restrict(X2, y2, coord_roles)
+        X1k, y1k2, g1k = restrict(X1, y1, g1, coord_roles); X2k, y2k2, g2k = restrict(X2, y2, g2, coord_roles)
         X1s, X2s = X1k[:, _SHAPE_MASK], X2k[:, _SHAPE_MASK]
-        sc12 = transfer(X1s, y1k2, X2s, y2k2, f"{len(coord_roles)}-way COORD shape-only inst1→inst2")
-        sc21 = transfer(X2s, y2k2, X1s, y1k2, f"{len(coord_roles)}-way COORD shape-only inst2→inst1")
+        sc12 = transfer(X1s, y1k2, X2s, y2k2, g2k, f"{len(coord_roles)}-way COORD shape-only inst1→inst2")
+        sc21 = transfer(X2s, y2k2, X1s, y1k2, g1k, f"{len(coord_roles)}-way COORD shape-only inst2→inst1")
         sweak = min(sc12["macro_f1"], sc21["macro_f1"])
         swd = sc12 if sc12["macro_f1"] <= sc21["macro_f1"] else sc21
         sverdict = band(sweak, swd["ci_lo"], swd["chance"])
@@ -278,8 +281,8 @@ def main(args: argparse.Namespace) -> None:
     coarse_out = None
     y1k = np.array([coarse(r) for r in y1]); y2k = np.array([coarse(r) for r in y2])
     if len({*y1k}) == 2 and len({*y2k}) == 2:
-        c_1to2 = transfer(X1, y1k, X2, y2k, "coord-vs-spec inst1→inst2")
-        c_2to1 = transfer(X2, y2k, X1, y1k, "coord-vs-spec inst2→inst1")
+        c_1to2 = transfer(X1, y1k, X2, y2k, g2, "coord-vs-spec inst1→inst2")
+        c_2to1 = transfer(X2, y2k, X1, y1k, g1, "coord-vs-spec inst2→inst1")
         coarse_out = {
             "caveat": "PARTLY STRUCTURAL — hubs carry more traffic than leaves, so this rides on "
                       "connection volume (like topology), not subtle per-agent behaviour. The "

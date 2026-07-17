@@ -1,12 +1,24 @@
 # WAN testbed configuration (US-India distributed deployment)
 # Fill in actual IP addresses before using.
+#
+# NOTE — what the committed C5 corpus actually ran (data/raw_wan sidecars are the ground truth):
+# all four agents were hosted on the India VM (10.16.0.35:8000-8003) and the US MacBook was the
+# driver + capture point on the VPN tunnel. That differs from the US/India split sketched below and
+# from the runbook's "orchestrator on the Mac" narrative; the sidecars win. Kept as a template —
+# adjust to your own hosts, but capture on the tunnel iface (see `interface` below).
 
 orchestrator: "FILL_IN_US_HOST:8000"       # MacBook Pro M3 Max (US)
 executor:     "FILL_IN_INDIA_HOST:8001"    # Dell PowerEdge R730xd (India)
 retriever:    "FILL_IN_INDIA_HOST:8002"    # Dell PowerEdge R730xd (India)
 validator:    "FILL_IN_US_HOST:8003"       # MacBook Pro M3 Max (US)
 
-interface: en0    # Adjust to the WAN-facing interface
+# Capture interface. MUST be the VPN TUNNEL interface, not the physical LAN NIC: the US–India path
+# runs over a VPN, so traffic on the physical NIC is still encapsulated and the A2A flows are not
+# readable there. Capture POST-DECAPSULATION on the tunnel. See docs/C5_WAN_RUNBOOK.md:
+#   utun8 = VPN tunnel on the capture host (192.168.3.5); route to 10.16.0.35 -> utun8
+#   en0   = physical LAN NIC (10.0.0.228) — explicitly NOT used for capture
+# (Was `en0`, which is reproduction-blocking: it silently captures the wrong, encapsulated path.)
+interface: utun8   # VPN tunnel iface on the capture host; adjust to YOUR tunnel iface name
 
 ollama_base_url: "http://localhost:11434"   # Each site runs its own Ollama
 ollama_model: "llama3.2:3b"               # India uses a smaller model if needed

@@ -101,8 +101,8 @@ def main(args: argparse.Namespace) -> None:
 
     p_full, pred_full = gbt_oof(X, y, groups)
     p_shape, pred_shape = gbt_oof(X, y, groups, mask=_SHAPE_MASK)
-    full = metrics_with_ci(y, p_full, pred_full)
-    shape = metrics_with_ci(y, p_shape, pred_shape)
+    full = metrics_with_ci(y, p_full, pred_full, groups=groups)
+    shape = metrics_with_ci(y, p_shape, pred_shape, groups=groups)
     logger.info("FULL  AUROC=%.3f %s  macroF1=%.3f", full["auroc"], full["auroc_ci95"], full["macro_f1"])
     logger.info("SHAPE AUROC=%.3f %s  macroF1=%.3f", shape["auroc"], shape["auroc_ci95"], shape["macro_f1"])
 

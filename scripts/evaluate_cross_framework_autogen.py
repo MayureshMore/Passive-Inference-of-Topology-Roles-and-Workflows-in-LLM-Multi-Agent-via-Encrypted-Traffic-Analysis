@@ -122,20 +122,24 @@ def band(mf, ci_lo, chance):
     return "BOUNDED (<0.40 or CI touches chance — does not replicate on AutoGen)"
 
 
-def transfer(Xtr, ytr, Xte, yte, label: str, mask=None) -> dict:
-    """Fit on train framework, predict on test framework (_transfer pattern); macro-F1 + CI."""
+def transfer(Xtr, ytr, Xte, yte, gte, label: str, mask=None) -> dict:
+    """Fit on train framework, predict on test framework (_transfer pattern); macro-F1 + CI.
+
+    gte = test-side cluster labels (trip). Several flows come from one trip, so the CI resamples
+    whole TRIPS (project convention, evaluation/stats)."""
     if mask is not None:
         Xtr, Xte = Xtr[:, mask], Xte[:, mask]
     clf = GBTClassifier(task="role").fit(Xtr, list(ytr))
     pred = clf.predict(Xte)
     classes = sorted(set(ytr) | set(yte))
-    ci = bootstrap_ci(list(yte), list(pred), classes=classes)
+    ci = bootstrap_ci(list(yte), list(pred), classes=classes, groups=list(gte))
     chance = 1.0 / len(sorted(set(yte)))
-    logger.info("[%s] macro-F1=%.3f [%.3f,%.3f] acc=%.3f (n_test=%d, chance=%.3f)",
+    logger.info("[%s] macro-F1=%.3f [%.3f,%.3f] acc=%.3f (n_test=%d, %d trips, chance=%.3f)",
                 label, ci["macro_f1"], ci["macro_f1_ci_lo"], ci["macro_f1_ci_hi"],
-                ci["accuracy"], len(yte), chance)
+                ci["accuracy"], len(yte), ci["n_clusters"] or 0, chance)
     return {"macro_f1": ci["macro_f1"], "ci_lo": ci["macro_f1_ci_lo"], "ci_hi": ci["macro_f1_ci_hi"],
-            "accuracy": ci["accuracy"], "n_test": int(len(yte)), "chance": chance}
+            "accuracy": ci["accuracy"], "n_test": int(len(yte)), "chance": chance,
+            "ci_method": ci["ci_method"], "ci_n_clusters": ci["n_clusters"]}
 
 
 def closed_world(X, y, groups, label: str, mask=None) -> dict:
@@ -182,15 +186,15 @@ def main(args: argparse.Namespace) -> None:
     xfer_out = None
     a2a_raw = Path(os.path.expanduser(args.a2a_raw))
     if any(a2a_raw.glob("*.pcap")):
-        Xa, ya, _ = extract_a2a(a2a_raw)
+        Xa, ya, ga = extract_a2a(a2a_raw)
         yac = np.array([coarse_a2a(r) for r in ya])           # a2a coord/spec
         if len(set(yac)) == 2 and len(set(yc)) == 2:
-            a2t = transfer(Xa, yac, X, yc, "coord/spec a2a_mcp→AutoGen")
-            t2a = transfer(X, yc, Xa, yac, "coord/spec AutoGen→a2a_mcp")
+            a2t = transfer(Xa, yac, X, yc, groups, "coord/spec a2a_mcp→AutoGen")
+            t2a = transfer(X, yc, Xa, yac, ga, "coord/spec AutoGen→a2a_mcp")
             weak = min(a2t["macro_f1"], t2a["macro_f1"])
             wd = a2t if a2t["macro_f1"] <= t2a["macro_f1"] else t2a
-            a2t_s = transfer(Xa, yac, X, yc, "coord/spec a2a→AutoGen SHAPE-ONLY", mask=_SHAPE_MASK)
-            t2a_s = transfer(X, yc, Xa, yac, "coord/spec AutoGen→a2a SHAPE-ONLY", mask=_SHAPE_MASK)
+            a2t_s = transfer(Xa, yac, X, yc, groups, "coord/spec a2a→AutoGen SHAPE-ONLY", mask=_SHAPE_MASK)
+            t2a_s = transfer(X, yc, Xa, yac, ga, "coord/spec AutoGen→a2a SHAPE-ONLY", mask=_SHAPE_MASK)
             weak_s = min(a2t_s["macro_f1"], t2a_s["macro_f1"])
             if weak >= 0.70 and wd["ci_lo"] > wd["chance"]:
                 xfer_verdict = "TRANSFERS across frameworks (≥0.70, CI clear of chance)"

@@ -77,12 +77,13 @@ def _internal_cv(proc_dir: Path, task: str) -> dict:
 
 def _transfer(local_dir: Path, wan_dir: Path, task: str) -> dict:
     Xl, yl, _ = _load(local_dir, task)
-    Xw, yw, _ = _load(wan_dir, task)
+    Xw, yw, gw = _load(wan_dir, task)
     clf = RFClassifier(task=task)
     clf.fit(Xl, yl)
     pred = clf.predict(Xw)
     classes = sorted(set(yl) | set(yw))
-    ci = bootstrap_ci(yw, pred, classes=classes)
+    # CI resamples the WAN test set's clusters (prompt_group), not correlated observations.
+    ci = bootstrap_ci(yw, pred, classes=classes, groups=list(gw))
     return {
         "f1": ci["macro_f1"], "ci_lo": ci["macro_f1_ci_lo"], "ci_hi": ci["macro_f1_ci_hi"],
         "acc": ci["accuracy"], "n": len(yw),

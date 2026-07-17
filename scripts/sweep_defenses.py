@@ -202,12 +202,15 @@ def eval_fixed_attacker(X_undef, X_def, y, groups):
     """
     n_splits = min(5, len(set(groups)))
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    oof_t, oof_p = [], []
+    oof_t, oof_p, oof_g = [], [], []
+    groups_arr = np.asarray(groups)
     for tr, te in skf.split(X_undef, y, groups):
         clf = _rf().fit(X_undef[tr], y[tr])
         oof_t.extend(list(y[te]))
         oof_p.extend(list(clf.predict(X_def[te])))
-    ci = bootstrap_ci(oof_t, oof_p, classes=sorted(set(y)))
+        oof_g.extend(groups_arr[te].tolist())
+    # CV is cluster-aware (prompt_group); the CI must be too.
+    ci = bootstrap_ci(oof_t, oof_p, classes=sorted(set(y)), groups=oof_g)
     return {
         "attack_macro_f1": float(f1_score(oof_t, oof_p, average="macro")),
         "accuracy": float(accuracy_score(oof_t, oof_p)),

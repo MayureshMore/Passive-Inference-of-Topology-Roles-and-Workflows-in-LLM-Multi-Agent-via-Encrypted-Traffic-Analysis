@@ -88,23 +88,38 @@ def gbt_oof(X, y, groups, mask=None):
     return proba, pred
 
 
-def metrics_with_ci(y, proba, pred):
+def metrics_with_ci(y, proba, pred, groups=None):
+    """AUROC + macro-F1 with a 95% percentile bootstrap.
+
+    CI convention (C4): flows are clustered by TRIP, so when `groups` is given the bootstrap
+    resamples whole trips — matching evaluation/stats and the group-safe CV. An i.i.d. interval over
+    correlated flows is over-confident.
+    """
     from sklearn.metrics import roc_auc_score, f1_score
     yb = (np.asarray(y) == POS).astype(int)
     auc = float(roc_auc_score(yb, proba))
     f1 = float(f1_score(y, pred, average="macro"))
     rng = np.random.default_rng(_SEED)
     n = len(y)
+    uniq = np.unique(np.asarray(groups)) if groups is not None else None
+    idx_by_group = ({u: np.where(np.asarray(groups) == u)[0] for u in uniq}
+                    if uniq is not None else None)
     aucs, f1s = [], []
     for _ in range(_N_BOOT):
-        idx = rng.integers(0, n, n)
+        if uniq is not None:
+            drawn = rng.choice(uniq, size=len(uniq), replace=True)
+            idx = np.concatenate([idx_by_group[u] for u in drawn])
+        else:
+            idx = rng.integers(0, n, n)
         if len(set(yb[idx])) < 2:
             continue
         aucs.append(roc_auc_score(yb[idx], proba[idx]))
         f1s.append(f1_score(np.asarray(y)[idx], np.asarray(pred)[idx], average="macro"))
     a_lo, a_hi = (float(v) for v in np.percentile(aucs, [2.5, 97.5]))
     f_lo, f_hi = (float(v) for v in np.percentile(f1s, [2.5, 97.5]))
-    return {"auroc": auc, "auroc_ci95": [a_lo, a_hi], "macro_f1": f1, "macro_f1_ci95": [f_lo, f_hi]}
+    return {"auroc": auc, "auroc_ci95": [a_lo, a_hi], "macro_f1": f1, "macro_f1_ci95": [f_lo, f_hi],
+            "ci_method": "group_bootstrap" if uniq is not None else "iid_bootstrap",
+            "ci_n_clusters": int(len(uniq)) if uniq is not None else None}
 
 
 def band(full, shape, confounded: bool) -> str:
@@ -193,8 +208,8 @@ def main(args: argparse.Namespace) -> None:
 
     p_full, pred_full = gbt_oof(X, y, groups)
     p_shape, pred_shape = gbt_oof(X, y, groups, mask=_SHAPE_MASK)
-    full = metrics_with_ci(y, p_full, pred_full)
-    shape = metrics_with_ci(y, p_shape, pred_shape)
+    full = metrics_with_ci(y, p_full, pred_full, groups=groups)
+    shape = metrics_with_ci(y, p_shape, pred_shape, groups=groups)
     logger.info("FULL  AUROC=%.3f %s  macroF1=%.3f", full["auroc"], full["auroc_ci95"], full["macro_f1"])
     logger.info("SHAPE AUROC=%.3f %s  macroF1=%.3f", shape["auroc"], shape["auroc_ci95"], shape["macro_f1"])
 

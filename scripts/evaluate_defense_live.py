@@ -65,17 +65,19 @@ def _rf() -> RandomForestClassifier:
 def baseline_cv(X, y, groups):
     """Group-safe CV of the undefended attacker.
 
-    Returns (acc, f1, oof_true, oof_pred) — the pooled out-of-fold predictions
-    let the caller attach a bootstrap 95 % CI.
+    Returns (acc, f1, oof_true, oof_pred, oof_groups) — the pooled out-of-fold predictions plus
+    their cluster labels, so the caller can attach a CLUSTER bootstrap 95 % CI (project convention).
     """
     y = np.asarray(y)
+    groups_arr = np.asarray(groups)
     n_splits = min(5, len(set(groups)))
     if n_splits < 2:
         clf = _rf().fit(X, y)
         p = clf.predict(X)
-        return accuracy_score(y, p), f1_score(y, p, average="macro"), list(y), list(p)
+        return (accuracy_score(y, p), f1_score(y, p, average="macro"),
+                list(y), list(p), list(groups_arr))
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    accs, f1s, oof_t, oof_p = [], [], [], []
+    accs, f1s, oof_t, oof_p, oof_g = [], [], [], [], []
     for tr, te in skf.split(X, y, groups):
         clf = _rf().fit(X[tr], y[tr])
         p = clf.predict(X[te])
@@ -83,7 +85,8 @@ def baseline_cv(X, y, groups):
         f1s.append(f1_score(y[te], p, average="macro"))
         oof_t.extend(list(y[te]))
         oof_p.extend(list(p))
-    return float(np.mean(accs)), float(np.mean(f1s)), oof_t, oof_p
+        oof_g.extend(groups_arr[te].tolist())
+    return float(np.mean(accs)), float(np.mean(f1s)), oof_t, oof_p, oof_g
 
 
 def transfer_to_defended(Xb, yb, Xd, yd):
@@ -123,8 +126,9 @@ def main(args: argparse.Namespace) -> None:
     from evaluation.stats import bootstrap_ci
 
     Xb, _, yb, gb = load_deployment(Path(args.baseline), TASK)
-    base_acc, base_f1, b_t, b_p = baseline_cv(Xb, yb, gb)
-    base_ci = bootstrap_ci(b_t, b_p)
+    base_acc, base_f1, b_t, b_p, b_g = baseline_cv(Xb, yb, gb)
+    # CV is cluster-aware (prompt_group); the CI resamples whole clusters too.
+    base_ci = bootstrap_ci(b_t, b_p, groups=b_g)
     base_bytes, base_dur = trace_wire_stats(Path(args.baseline_raw))
     chance = 1.0 / len(set(yb))
 
@@ -159,9 +163,10 @@ def main(args: argparse.Namespace) -> None:
         if not proc or not (Path(proc) / "labels.json").exists():
             logger.warning("skip %s — no processed features at %s", name, proc)
             continue
-        Xd, _, yd, _ = load_deployment(Path(proc), TASK)
+        Xd, _, yd, gd = load_deployment(Path(proc), TASK)
         acc, f1, yt, yp = transfer_to_defended(Xb, yb, Xd, yd)
-        ci = bootstrap_ci(yt, yp)
+        # Defended test set is clustered by prompt_group → cluster bootstrap.
+        ci = bootstrap_ci(yt, yp, groups=list(gd))
         d_bytes, d_dur = trace_wire_stats(Path(raw)) if raw else (0.0, 0.0)
         byte_ohd = (d_bytes / base_bytes - 1.0) if base_bytes else 0.0
         lat_ohd = (d_dur / base_dur - 1.0) if base_dur else 0.0

@@ -169,37 +169,10 @@ def _accuracy(y_true: list[str], y_pred: list[str]) -> float:
     return float(sum(a == b for a, b in zip(y_true, y_pred)) / len(y_true))
 
 
-def bootstrap_ci(
-    y_true: list[str],
-    y_pred: list[str],
-    classes: list[str],
-    n: int = _N_BOOTSTRAP,
-    seed: int = _RNG_SEED,
-) -> dict[str, Any]:
-    """
-    Bootstrap CI (2.5 / 97.5 percentile) for accuracy and macro-F1.
-    Resamples the test set (not the training set) — safe for transfer experiments.
-    """
-    rng = np.random.default_rng(seed)
-    idx = np.arange(len(y_true))
-    y_true_arr = np.array(y_true)
-    y_pred_arr = np.array(y_pred)
-
-    acc_samples: list[float] = []
-    f1_samples:  list[float] = []
-    for _ in range(n):
-        sample = rng.choice(idx, size=len(idx), replace=True)
-        acc_samples.append(_accuracy(y_true_arr[sample].tolist(), y_pred_arr[sample].tolist()))
-        f1_samples.append(_macro_f1(y_true_arr[sample].tolist(), y_pred_arr[sample].tolist(), classes))
-
-    return {
-        "accuracy":        _accuracy(y_true, y_pred),
-        "accuracy_ci_lo":  float(np.percentile(acc_samples, 2.5)),
-        "accuracy_ci_hi":  float(np.percentile(acc_samples, 97.5)),
-        "macro_f1":        _macro_f1(y_true, y_pred, classes),
-        "macro_f1_ci_lo":  float(np.percentile(f1_samples, 2.5)),
-        "macro_f1_ci_hi":  float(np.percentile(f1_samples, 97.5)),
-    }
+# CI convention (C4): use the SHARED implementation so every interval in the paper is computed the
+# same way — cluster (group) bootstrap, 2000 resamples, seed 42, 2.5/97.5 percentiles. This module
+# previously carried its own i.i.d. copy at 1000 resamples; that divergence is now gone.
+from evaluation.stats import bootstrap_ci  # noqa: E402
 
 
 # ── Internal CV (A→A or B→B) ─────────────────────────────────────────────────
@@ -228,6 +201,7 @@ def run_internal_cv(
     fold_f1s:  list[float] = []
     oof_t: list[str] = []
     oof_p: list[str] = []
+    oof_g: list[str] = []
 
     for fold, (train_idx, test_idx) in enumerate(skf.split(X, y_arr, g_arr)):
         X_tr, X_te = X[train_idx], X[test_idx]
@@ -241,9 +215,11 @@ def run_internal_cv(
         fold_f1s.append(_macro_f1(y_te, preds, classes))
         oof_t.extend(y_te)
         oof_p.extend(list(preds))
+        oof_g.extend(g_arr[test_idx].tolist())
 
-    # 95 % bootstrap CI on pooled out-of-fold preds — same method as transfer CIs.
-    ci = bootstrap_ci(oof_t, oof_p, classes)
+    # 95 % bootstrap CI on pooled out-of-fold preds — the CV is cluster-aware (prompt_group), so the
+    # CI resamples whole clusters too (same convention as the transfer CIs).
+    ci = bootstrap_ci(oof_t, oof_p, classes, groups=oof_g)
 
     return {
         "experiment": label,
@@ -272,8 +248,13 @@ def run_transfer(
     task: str,
     label: str,
     do_bootstrap: bool = True,
+    groups_test: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Train on one deployment, evaluate on the other."""
+    """Train on one deployment, evaluate on the other.
+
+    groups_test = the TEST deployment's cluster labels (prompt_group). Passed to the CI so whole
+    clusters are resampled (project convention); an i.i.d. interval would be over-confident.
+    """
     from models.random_forest import RFClassifier
 
     classes = sorted(set(y_train + y_test))
@@ -291,7 +272,7 @@ def run_transfer(
     }
 
     if do_bootstrap:
-        ci = bootstrap_ci(y_test, preds, classes)
+        ci = bootstrap_ci(y_test, preds, classes, groups=groups_test)
         result.update(ci)
     else:
         result["accuracy"]  = _accuracy(y_test, preds)
@@ -306,6 +287,7 @@ def run_seg_subanalysis(
     Xa_flat: np.ndarray, Xa_seg: np.ndarray, ya: list[str],
     Xb_flat: np.ndarray, Xb_seg: np.ndarray, yb: list[str],
     do_bootstrap: bool = True,
+    groups_b: list[str] | None = None,
 ) -> dict[str, dict]:
     """
     Three feature-set variants for A→B workflow transfer.
@@ -321,13 +303,13 @@ def run_seg_subanalysis(
     results["seg_only"] = run_transfer(
         Xa_seg, ya, Xb_seg, yb,
         task="workflow", label="A→B  [seg_only 30-dim]",
-        do_bootstrap=do_bootstrap,
+        do_bootstrap=do_bootstrap, groups_test=groups_b,
     )
 
     results["flat_only"] = run_transfer(
         Xa_flat, ya, Xb_flat, yb,
         task="workflow", label="A→B  [flat_only 195-dim]",
-        do_bootstrap=do_bootstrap,
+        do_bootstrap=do_bootstrap, groups_test=groups_b,
     )
 
     Xa_full = np.concatenate([Xa_flat, Xa_seg], axis=1)
@@ -335,7 +317,7 @@ def run_seg_subanalysis(
     results["flat+seg"] = run_transfer(
         Xa_full, ya, Xb_full, yb,
         task="workflow", label="A→B  [flat+seg 225-dim]",
-        do_bootstrap=do_bootstrap,
+        do_bootstrap=do_bootstrap, groups_test=groups_b,
     )
 
     return results
@@ -548,13 +530,13 @@ def main(args: argparse.Namespace) -> None:
         # A→B transfer
         logger.info("Running A→B transfer for task=%s (bootstrap=%s)", task, do_bootstrap)
         ab = run_transfer(Xa_flat, ya, Xb_flat, yb, task=task, label="A→B",
-                          do_bootstrap=do_bootstrap)
+                          do_bootstrap=do_bootstrap, groups_test=gb)
         all_results[f"{task}/AB"] = ab
 
         # B→A transfer
         logger.info("Running B→A transfer for task=%s (bootstrap=%s)", task, do_bootstrap)
         ba = run_transfer(Xb_flat, yb, Xa_flat, ya, task=task, label="B→A",
-                          do_bootstrap=do_bootstrap)
+                          do_bootstrap=do_bootstrap, groups_test=ga)
         all_results[f"{task}/BA"] = ba
 
         print_task_results(task, aa, bb, ab, ba, do_ci=do_bootstrap,
@@ -566,7 +548,7 @@ def main(args: argparse.Namespace) -> None:
             seg_results = run_seg_subanalysis(
                 Xa_flat, Xa_seg, ya,
                 Xb_flat, Xb_seg, yb,
-                do_bootstrap=do_bootstrap,
+                do_bootstrap=do_bootstrap, groups_b=gb,
             )
             all_results["workflow/seg_subanalysis"] = seg_results
             print_seg_subanalysis(seg_results, do_ci=do_bootstrap, label_b=label_b)
